@@ -66,12 +66,20 @@ public enum DNSLeakVerdict: String, Equatable {
     case domesticWarning = "DNS 可能漏到国内 ⚠️"
     case proxyOK = "DNS 走代理内核 ✓"
     case unknown = "DNS 查不到（本机 resolver 无法判断）"
+
+    public var localizedDescription: String {
+        switch self {
+        case .domesticWarning: return L("DNS 可能漏到国内 ⚠️", "DNS may leak to a domestic resolver ⚠️")
+        case .proxyOK: return L("DNS 走代理内核 ✓", "DNS uses the proxy core ✓")
+        case .unknown: return L("DNS 查不到（本机 resolver 无法判断）", "DNS unavailable (cannot determine from local resolver)")
+        }
+    }
 }
 
 public struct LeakCheckStatus: Equatable {
     public var ipv6Blocked: Bool?
     public var ipv6Country = ""
-    public var ipv6Message = "未检测"
+    public var ipv6Message = L("未检测", "Not checked")
     public var dnsVerdict: DNSLeakVerdict = .unknown
     public var checkedAt: TimeInterval = 0
 }
@@ -131,6 +139,8 @@ public func rate(prev: Int64, cur: Int64, dt: TimeInterval) -> Double? {
     return rate(prev: UInt64(prev), cur: UInt64(cur), dt: dt)
 }
 
+/// 198.18.0.0/15 是代理软件 fake-ip 专用网段，本身就说明 DNS 被代理接管；
+/// 127.0.0.1 只说明是本机的解析器 —— 可能是代理内核，也可能是转发给运营商的 dnsmasq，判断不了就说判断不了。
 public func dnsVerdict(_ nameservers: [String]) -> DNSLeakVerdict {
     let domestic: Set<String> = ["223.5.5.5", "223.6.6.6", "119.29.29.29", "114.114.114.114", "180.76.76.76", "1.12.12.12", "120.53.53.53"]
     let normalized = nameservers.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "[] ")) }
@@ -139,7 +149,7 @@ public func dnsVerdict(_ nameservers: [String]) -> DNSLeakVerdict {
     let valid = normalized.filter { isValidIP($0) }
     guard valid.count == normalized.count else { return .unknown }
     let proxy = valid.filter { ip in
-        if ip.hasPrefix("127.") || ip == "::1" { return true }
+        if ip.hasPrefix("127.") || ip == "::1" { return false }
         let p = ip.split(separator: ".").compactMap { Int($0) }
         return p.count == 4 && p[0] == 198 && (p[1] == 18 || p[1] == 19)
     }
@@ -148,11 +158,19 @@ public func dnsVerdict(_ nameservers: [String]) -> DNSLeakVerdict {
 
 /// `curl -6` 探测结果判定。本机没有公网 IPv6 时，macOS 会给 curl 合成 IPv4 映射地址（`::ffff:a.b.c.d`），
 /// 请求实际走 IPv4 进代理隧道 —— 只有 trace 回显的出口 IP 本身是 IPv6，才说明 IPv6 真的绕过了隧道。
-public func ipv6Verdict(traceIP: String?, httpStatus: Int) -> (blocked: Bool, message: String) {
+/// 没拿到响应时要看原因：只有 IPv4 同时是通的、且失败原因是「解析不到 AAAA / 连不上 / 超时」，才算 IPv6 被挡住；
+/// 证书错误、IPv4 也不通（断网）之类 → 未知（blocked = nil），不能显示成「检查通过」。
+public func ipv6Verdict(traceIP: String?, httpStatus: Int, curlExit: Int = 0, curlError: String = "",
+                        ipv4Reachable: Bool = true) -> (blocked: Bool?, message: String) {
     if let ip = traceIP {
-        return ip.contains(":") ? (false, "IPv6 可直连（可能绕过代理隧道）⚠️") : (true, "无 IPv6 出口（探测走 IPv4 进隧道）✓")
+        return ip.contains(":") ? (false, L("IPv6 可直连（可能绕过代理隧道）⚠️", "IPv6 is directly reachable (may bypass the proxy tunnel) ⚠️")) : (true, L("无 IPv6 出口（探测走 IPv4 进隧道）✓", "No IPv6 egress (probe used IPv4 through the tunnel) ✓"))
     }
-    return httpStatus > 0 ? (false, "IPv6 可直连（响应无 trace）⚠️") : (true, "IPv6 出站已阻断 ✓")
+    if httpStatus > 0 { return (false, L("IPv6 可直连（响应无 trace）⚠️", "IPv6 is directly reachable (response had no trace) ⚠️")) }
+    // 解析不到 AAAA / 连不上 / 超时：IPv6 流量没出去 = 没泄漏（分不清是被挡还是本来就没有 IPv6，文案不说「已阻断」）
+    if ipv4Reachable, [6, 7, 28].contains(curlExit) { return (true, L("IPv6 无法直连（未发现泄漏）✓", "IPv6 can't connect directly (no leak) ✓")) }
+    let why = curlError.isEmpty ? "curl \(curlExit)" : curlError
+    return (nil, ipv4Reachable ? L("IPv6 检测失败：\(why)", "IPv6 check failed: \(why)")
+                               : L("IPv6 未检测：IPv4 也不通，可能断网", "IPv6 not checked: IPv4 is down too (offline?)"))
 }
 
 public func exitChange(previous: AIExitStatus, current: AIExitStatus) -> ExitChangeEvent? {
@@ -350,10 +368,10 @@ public final class NetworkScanner {
     private func applyGeminiConnections(_ proxy: ProxyKernelStatus) {
         let connection = proxy.connections.first(where: { $0.name == "Gemini" })
         let message: String
-        if !proxy.error.isEmpty { message = "查不到出口：代理连接表不可用" }
-        else if connection?.count ?? 0 == 0 { message = "无活动连接，查不到出口" }
-        else if connection?.chains.isEmpty != false { message = "有活动连接，但连接表未提供出站链路" }
-        else { message = "走出站：" + connection!.chains.joined(separator: "、") }
+        if !proxy.error.isEmpty { message = L("查不到出口：代理连接表不可用", "Egress unavailable: proxy connection table unavailable") }
+        else if connection?.count ?? 0 == 0 { message = L("无活动连接，查不到出口", "No active connections; egress unavailable") }
+        else if connection?.chains.isEmpty != false { message = L("有活动连接，但连接表未提供出站链路", "Active connections, but no egress chain in the connection table") }
+        else { message = L("走出站：", "Egress: ") + connection!.chains.joined(separator: L("、", ", ")) }
         lock.lock(); defer { lock.unlock() }
         guard let i = snapshotCache.aiExits.firstIndex(where: { $0.id == "gemini" }) else { return }
         snapshotCache.aiExits[i].error = message
@@ -366,17 +384,17 @@ public final class NetworkScanner {
         let started = Date().timeIntervalSince1970
         do {
             let text = try request(target.url, timeout: 8, headers: ["Connection": "close"])
-            guard let trace = parseTrace(text) else { status.error = "响应缺少有效的 ip / loc / colo 字段"; return status }
+            guard let trace = parseTrace(text) else { status.error = L("响应缺少有效的 ip / loc / colo 字段", "Response is missing valid ip / loc / colo fields"); return status }
             status.ip = trace.ip; status.loc = trace.loc; status.colo = trace.colo
             status.latencyMS = max(0, Int(((Date().timeIntervalSince1970 - started) * 1000).rounded()))
             status.capturedAt = Date().timeIntervalSince1970
-        } catch { status.error = "请求失败：\(error.localizedDescription)" }
+        } catch { status.error = L("请求失败：\(error.localizedDescription)", "Request failed: \(error.localizedDescription)") }
         return status
     }
 
     private func probeProxy() -> ProxyKernelStatus {
         var result = ProxyKernelStatus()
-        guard let base = clashBaseURL() else { result.error = "未检测到代理内核（clash API 未开或端口不对）"; return result }
+        guard let base = clashBaseURL() else { result.error = L("未检测到代理内核（clash API 未开或端口不对）", "Proxy core not found (Clash API unavailable or wrong port)"); return result }
         do {
             let version = try jsonRequest(base, path: "/version")
             guard let versionText = (version["version"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) ?? (version["meta"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { throw ScanError.invalidResponse }
@@ -392,7 +410,7 @@ public final class NetworkScanner {
             let connections = try jsonRequest(base, path: "/connections")
             guard let parsed = NetworkScanner.parseConnections(connections) else { throw ScanError.invalidResponse }
             result.connections = parsed
-        } catch { result.error = "未检测到代理内核（clash API 未开或端口不对）" }
+        } catch { result.error = L("未检测到代理内核（clash API 未开或端口不对）", "Proxy core not found (Clash API unavailable or wrong port)") }
         return result
     }
 
@@ -445,7 +463,7 @@ public final class NetworkScanner {
             let name = wifi.components(separatedBy: ":").dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespacesAndNewlines)
             // 没连 Wi-Fi 时输出里没有冒号（"You are not associated…"），不能一律说成权限问题
             if !name.isEmpty, !name.localizedCaseInsensitiveContains("error") { local.wifiName = name }
-            else { local.wifiName = wifi.contains("not associated") ? "未连接 Wi-Fi" : "查不到（可能需定位权限）" }
+            else { local.wifiName = wifi.contains("not associated") ? L("未连接 Wi-Fi", "Wi-Fi not connected") : L("查不到（可能需定位权限）", "Unavailable (location permission may be required)") }
         }
         let dns = execute("/usr/sbin/scutil", ["--dns"], timeout: 3)
         local.dnsServers = NetworkScanner.parseDNS(dns)
@@ -532,15 +550,23 @@ public final class NetworkScanner {
     private func probeLeak() -> LeakCheckStatus {
         var leak = LeakCheckStatus()
         let marker = "__VG_STATUS__"
-        let text = execute("/usr/bin/curl", ["-q", "-6", "-s", "-m", "5", "--noproxy", "*", "-w", "\n\(marker)%{http_code}\n", "https://www.cloudflare.com/cdn-cgi/trace"], timeout: 7)
+        // 失败时 curl 退出码非 0，也要拿到输出：-w 里带上 http 状态、退出码、错误原因
+        let text = execute("/usr/bin/curl", ["-q", "-6", "-s", "-m", "5", "--noproxy", "*", "-w", "\n\(marker)%{http_code} %{exitcode} %{errormsg}\n",
+                                             "https://www.cloudflare.com/cdn-cgi/trace"], timeout: 7, allowFailure: true)
         let pieces = text.components(separatedBy: marker)
         let body = pieces.first ?? text
-        let httpStatus = pieces.dropFirst().first.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+        let status = (pieces.dropFirst().first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", maxSplits: 2).map(String.init)
+        let httpStatus = status.first.flatMap { Int($0) } ?? 0
+        let curlExit = status.count > 1 ? Int(status[1]) ?? -1 : -1
         let trace = parseTrace(body)
-        let verdict = ipv6Verdict(traceIP: trace?.ip, httpStatus: httpStatus)
+        lock.lock()
+        let dns = snapshotCache.local.dnsServers
+        let ipv4OK = snapshotCache.aiExits.contains { !$0.isGemini && !$0.ip.isEmpty && $0.error.isEmpty }
+        lock.unlock()
+        let verdict = ipv6Verdict(traceIP: trace?.ip, httpStatus: httpStatus, curlExit: curlExit,
+                                  curlError: status.count > 2 ? status[2] : "", ipv4Reachable: ipv4OK)
         leak.ipv6Blocked = verdict.blocked; leak.ipv6Message = verdict.message
-        if let trace, !verdict.blocked { leak.ipv6Country = trace.loc }
-        lock.lock(); let dns = snapshotCache.local.dnsServers; lock.unlock()
+        if let trace, verdict.blocked == false { leak.ipv6Country = trace.loc }
         leak.dnsVerdict = dnsVerdict(dns); leak.checkedAt = Date().timeIntervalSince1970
         return leak
     }
@@ -594,14 +620,14 @@ public final class NetworkScanner {
         return try result.get()
     }
 
-    private enum ScanError: LocalizedError { case timeout, invalidResponse, http(Int); var errorDescription: String? { switch self { case .timeout: return "请求超时"; case .invalidResponse: return "响应格式不正确"; case .http(let code): return "HTTP \(code)" } } }
+    private enum ScanError: LocalizedError { case timeout, invalidResponse, http(Int); var errorDescription: String? { switch self { case .timeout: return L("请求超时", "Request timed out"); case .invalidResponse: return L("响应格式不正确", "Invalid response"); case .http(let code): return "HTTP \(code)" } } }
     private final class RequestResult {
         let lock = NSLock()
         var value: Result<Data, Error>?
     }
     private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate { func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) } }
 
-    private func execute(_ path: String, _ args: [String], timeout: TimeInterval) -> String {
+    private func execute(_ path: String, _ args: [String], timeout: TimeInterval, allowFailure: Bool = false) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path); process.arguments = args
         let pipe = Pipe()
@@ -623,7 +649,7 @@ public final class NetworkScanner {
             if done.wait(timeout: .now() + 0.2) == .timedOut { kill(process.processIdentifier, SIGKILL) }
             return ""
         }
-        guard readDone.wait(timeout: .now() + 1) == .success, process.terminationStatus == 0 else { return "" }
+        guard readDone.wait(timeout: .now() + 1) == .success, allowFailure || process.terminationStatus == 0 else { return "" }
         box.lock.lock(); defer { box.lock.unlock() }
         guard case let .success(data) = box.value else { return "" }
         return String(data: data, encoding: .utf8) ?? ""

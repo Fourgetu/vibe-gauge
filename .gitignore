@@ -12,3 +12,5 @@ VibeGauge
 *.p8
 prices.json
 plans.json
+/VibeGauge-*
+__pycache__/

@@ -26,8 +26,34 @@ jobs:
 
     - name: Run Headless Self-Test
       run: |
-        ./VibeGauge.app/Contents/MacOS/VibeGauge --selftest
+        ./VibeGauge.app/Contents/MacOS/VibeGauge --selftest -uiLanguage zh
+        ./VibeGauge.app/Contents/MacOS/VibeGauge --selftest -uiLanguage en
+
+    - name: Diagnose Smoke Test (real scan paths on an empty machine; no assertions)
+      run: |
+        ./VibeGauge.app/Contents/MacOS/VibeGauge --diagnose -uiLanguage en
+
+    - name: Self-Test Intel Slice (Rosetta)
+      run: |
+        lipo -archs VibeGauge.app/Contents/MacOS/VibeGauge | grep -q x86_64
+        /usr/sbin/softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+        arch -x86_64 ./VibeGauge.app/Contents/MacOS/VibeGauge --selftest -uiLanguage en
+
+    - name: First-Launch Smoke Test (clean machine, no AI tools installed)
+      run: |
+        ./VibeGauge.app/Contents/MacOS/VibeGauge -uiLanguage en &
+        pid=$!
+        sleep 15
+        kill -0 "$pid"   # still running = no crash on first launch
+        kill "$pid"
+
+    - name: Screenshot Tool Compiles (demo-data renderer for README)
+      run: |
+        swiftc -parse-as-library -target arm64-apple-macosx14.0 \
+          -framework Cocoa -framework SwiftUI -framework ServiceManagement -framework UserNotifications \
+          $(ls Sources/*.swift | grep -v '/main.swift$') tools/screenshots.swift -o "$RUNNER_TEMP/screenshots"
 
     - name: Test Python Proxy Self-Test
       run: |
         /usr/bin/python3 Resources/vibegauge-proxy.py --selftest
+        /usr/bin/python3 Resources/vibegauge-statusline.py --selftest

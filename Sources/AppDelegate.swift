@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var autoCleanTimer: Timer?
 
     private var currentReport = ScanReport()
+    private let reportStore = ReportStore(ScanReport())
     private weak var hostingView: SwipeHostingView<DashboardView>?
     private let log = Logger(subsystem: "com.haifeng.vibegauge", category: "menu")
 
@@ -51,12 +52,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DashboardView.migrateTabSelection()
         NetworkScanner.shared.start()
         UsageHistory.shared.start()
-        DispatchQueue.global(qos: .utility).async { ProxyManager.shared.syncIfInstalled() }   // 包里脚本更新了就热替换
+        DispatchQueue.global(qos: .utility).async { ProxyManager.shared.syncIfInstalled(); StatuslineBridge.shared.syncIfConnected() }   // 包里脚本更新了就热替换
         updateStatus()
 
         timer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: true) { [weak self] _ in
             self?.updateStatus()
         }
+        // 菜单打开期间 RunLoop 处于 eventTracking 模式，default 模式的定时器会停：面板开着就不刷新了
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
 
         setupAutoCleanTimer()
         setupWakeObserver()
@@ -97,6 +100,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func performSilentAutoClean(reason: String = "定时") {
+        // 三条触发路径都经过这里：唤醒后排队 60 秒的那次，期间用户可能已经把开关关了
+        guard isAutoCleanEnabled else { return }
         let now = Date().timeIntervalSince1970
         guard now - lastAutoCleanAt >= 300 else {
             log.debug("自动清理跳过（\(reason)）：距上次不足 5 分钟")
@@ -108,13 +113,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let report = ProcessScanner.shared.scan()
             // 静默清理更保守：只动「连续两次扫描都是孤儿」的，避开 CLI 正在重启 MCP 的瞬态
             let stable = ProcessScanner.shared.stableOrphans(report.orphans, minSeconds: 120)
-            if !stable.isEmpty {
-                let r = ProcessScanner.shared.killProcesses(stable)
+            // 扫描要几秒，发信号前再确认一次开关
+            if !stable.isEmpty, UserDefaults.standard.bool(forKey: "autoCleanEnabled") {
+                // 进入清理后还要等锁、查端口：发信号前再确认一次开关没被关掉
+                let r = ProcessScanner.shared.killProcesses(stable, shouldProceed: { UserDefaults.standard.bool(forKey: "autoCleanEnabled") })
                 DispatchQueue.main.async {
                     if r.killed > 0 {
                         self?.sendNotification(
-                            title: "VibeGauge 内存优化",
-                            body: "已静默清理 \(r.killed) 个断链 AI 进程，回收 \(String(format: "%.0f", r.freedMB)) MB 内存。" + (r.skipped > 0 ? "（\(r.skipped) 个已自行退出，跳过）" : "")
+                            title: L("VibeGauge 内存优化", "VibeGauge memory optimization"),
+                            body: L("已静默清理 \(r.killed) 个断链 AI 进程，回收 \(String(format: "%.0f", r.freedMB)) MB 内存。", "Quietly reaped \(r.killed) orphaned AI processes, freeing \(String(format: "%.0f", r.freedMB)) MB.") + (r.skipped > 0 ? L("（\(r.skipped) 个已自行退出，跳过）", " (\(r.skipped) already exited; skipped)") : "")
                         )
                     }
                     self?.updateStatus()
@@ -190,6 +197,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isScanning = false
 
     @objc func updateStatus() {
+        checkForUpdate()                    // 每天一次，没到期直接返回
         guard !isScanning else { return }   // 首扫可能 4s+，别让 8s 定时器堆积
         isScanning = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -197,6 +205,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 self?.isScanning = false
                 self?.currentReport = report
+                self?.reportStore.report = report       // 面板开着就跟着刷新
                 self?.renderStatusButton(report: report)
                 self?.reapIfMemoryTight(report)
             }
@@ -285,9 +294,62 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         button.attributedTitle = NSAttributedString(string: "")
 
         let signals = report.pressures
-        button.toolTip = (["VibeGauge · 内存可用 \(report.freePercentage)%", "—— 以下为已用 %（越高越紧）——"]
+        button.toolTip = ([L("VibeGauge · 内存可用 \(report.freePercentage)%", "VibeGauge · \(report.freePercentage)% memory free"), L("—— 以下为已用 %（越高越紧）——", "— below: % used (higher is tighter) —")]
                           + signals.prefix(8).map { "\($0.short)  \($0.pct)%" + ($0.level > 0 ? "  ⚠︎" : "") }).joined(separator: "\n")
         evaluateThresholds(signals)
+        evaluateForecasts(report)
+        evaluatePending(report)
+    }
+
+    // MARK: - 预计打满提醒（每池每周期一次；预测要持续 15 分钟才算稳定；重启不重报）
+
+    private var forecastFirstSeen: [String: TimeInterval] = [:]
+    private let forecastNotifiedKey = "vg.forecastNotified"
+    static let forecastStableAfter: TimeInterval = 15 * 60
+
+    /// 返回这一轮该发的键：持续预测够久、且这个周期没报过
+    static func dueForecasts(_ candidates: [ForecastCandidate], firstSeen: inout [String: TimeInterval],
+                             notified: Set<String>, now: TimeInterval) -> [ForecastCandidate] {
+        let live = Set(candidates.map(\.key))
+        firstSeen = firstSeen.filter { live.contains($0.key) }       // 预测消失 → 重新计时
+        var due: [ForecastCandidate] = []
+        for c in candidates where !notified.contains(c.key) {
+            let since = firstSeen[c.key] ?? now
+            firstSeen[c.key] = since
+            if now - since >= forecastStableAfter { due.append(c) }
+        }
+        return due
+    }
+
+    private var forecastLastEval: TimeInterval = 0
+
+    private func evaluateForecasts(_ report: ScanReport) {
+        let now = Date().timeIntervalSince1970
+        // 「持续 15 分钟」只算真的在看着的时间：通知关着、或两次扫描隔太久（睡眠）都重新计时
+        if !isThresholdNotifyEnabled || now - forecastLastEval > 120 { forecastFirstSeen = [:] }
+        forecastLastEval = now
+        // 键里带重置点：重置点一周前的旧周期键留着没用（每轮都清，不只在有新通知时）
+        var notified = Set(UserDefaults.standard.stringArray(forKey: forecastNotifiedKey) ?? [])
+            .filter { Double($0.split(separator: "@").last ?? "").map { $0 > now - 8 * 86400 } ?? false }
+        guard isThresholdNotifyEnabled else { return }
+        let history = UsageHistory.shared.snapshot()
+        var windows: [(id: String, platform: String, pool: String, window: QuotaWindow?, profile: ActivityProfile?)] = []
+        for l in report.detectedLLMs {
+            let profile = history.activityProfile(for: l.name)
+            let sec = l.secondaryPoolName.isEmpty ? L("副池", "secondary") : l.secondaryPoolName
+            windows += [("\(l.id)|5h", l.name, "5h", l.fiveHour, profile), ("\(l.id)|weekly", l.name, L("周", "weekly"), l.sevenDay, profile),
+                        ("\(l.id)|sec5h", l.name, "\(sec) 5h", l.secondaryFiveHour, profile),
+                        ("\(l.id)|secweekly", l.name, "\(sec) \(L("周", "weekly"))", l.secondarySevenDay, profile)]
+        }
+        for p in report.api.providers {
+            windows += [("\(p.id)|5h", p.displayName, "5h", p.fiveHour, nil), ("\(p.id)|weekly", p.displayName, L("周", "weekly"), p.sevenDay, nil)]
+        }
+        let due = Self.dueForecasts(ForecastCandidate.find(in: windows, now: now), firstSeen: &forecastFirstSeen, notified: notified, now: now)
+        for c in due {
+            sendNotification(title: c.title, body: c.body)
+            notified.insert(c.key)
+        }
+        UserDefaults.standard.set(notified.sorted(), forKey: forecastNotifiedKey)
     }
 
     // MARK: - 阈值通知
@@ -322,8 +384,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let last = defaults.object(forKey: key) as? Double
             guard Self.shouldNotifyExit(lastAt: last, now: now) else { continue }
             defaults.set(now, forKey: key)
-            sendNotification(title: (event.isCountryChange ? "⛔️ " : "⚠️ ") + "\(event.aiName) 出口变化",
-                             body: "\(event.oldIP)（\(event.oldLoc)）→ \(event.newIP)（\(event.newLoc)）")
+            sendNotification(title: (event.isCountryChange ? "⛔️ " : "⚠️ ") + L("\(event.aiName) 出口变化（本 App 探测）", "\(event.aiName) egress changed (as probed by this app)"),
+                             body: L("\(event.oldIP)（\(event.oldLoc)）→ \(event.newIP)（\(event.newLoc)）", "\(event.oldIP) (\(event.oldLoc)) → \(event.newIP) (\(event.newLoc))"))
         }
     }
 
@@ -350,8 +412,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for s in signals {
             let last = notifiedLevel[s.key] ?? 0
             if s.level > last {
-                // 同一条信号 4 小时内最多吼一次，避免在阈值上抖来抖去刷屏
-                if now - (notifiedAt[s.key] ?? 0) < Self.notifyCooldown { continue }
+                guard Self.shouldNotify(level: s.level, lastLevel: last, lastAt: notifiedAt[s.key] ?? 0, now: now) else { continue }
                 notifiedLevel[s.key] = s.level
                 notifiedAt[s.key] = now
                 dirty = true
@@ -368,6 +429,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private static let notifyCooldown: TimeInterval = 4 * 3600
+
+    /// 冷却只防「在警告线上抖来抖去」：从 0 重新升到警告，4 小时内只报一次；
+    /// 危急（不管是从警告升上来，还是回落后直接冲上去）立刻报，不受冷却限制
+    static func shouldNotify(level: Int, lastLevel: Int, lastAt: TimeInterval, now: TimeInterval) -> Bool {
+        guard level > lastLevel else { return false }
+        return lastLevel > 0 || level >= 2 || now - lastAt >= notifyCooldown
+    }
     private let notifyStateKey = "vg.notifyState"       // [key: "level|lastAt"]
 
     private func loadNotifyState() {
@@ -390,14 +458,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        // 菜单弹出直接用 ≤8s 前的缓存快照，主线程不做任何扫描；DashboardView.onAppear 会立刻在后台刷一次
-        let report = currentReport
+        // 菜单弹出直接用 ≤8s 前的缓存快照，主线程不做任何扫描；之后跟着 reportStore 刷新
 
         // 面板（Tab 切换，高度随当前 Tab 内容自适应，超过屏幕才滚动）。所有动作都在面板里，菜单只留退出。
         var actions = PanelActions()
-        actions.cleanOrphans = { [weak self] in
+        actions.cleanOrphans = { [weak self] shown in
             self?.menu.cancelTracking()
-            self?.cleanOrphansAction()
+            self?.cleanOrphans(shown)
         }
         actions.cleanNPX = { [weak self] in
             self?.menu.cancelTracking()
@@ -417,14 +484,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.uninstallProxy()
         }
         actions.copyProxyPrefix = { [weak self] in self?.copyProxyPrefix() }
-        actions.purgeLogs = { [weak self] in
+        actions.purgeLogs = { [weak self] shown in
             self?.menu.cancelTracking()
-            self?.purgeLogsAction()
+            self?.purgeLogs(shown)
         }
         actions.relayout = { [weak self] in self?.relayoutMenuPanel() }
+        actions.quit = { NSApp.terminate(nil) }
+        actions.setQuotaBridge = { [weak self] tool, on in self?.setQuotaBridge(tool, on: on) }
+        actions.setPendingHooks = { [weak self] on in self?.setPendingHooks(on) }
+        actions.addUsageKey = { [weak self] in
+            self?.menu.cancelTracking()
+            DispatchQueue.main.async { self?.addUsageKey() }
+        }
+        actions.removeUsageKey = { [weak self] account in
+            if !OfficialQuota.shared.remove(account) {
+                self?.sendNotification(title: L("没有删掉", "Not removed"), body: L("钥匙串拒绝删除这条 key，可在「钥匙串访问」里搜 com.haifeng.vibegauge.usage-key 手动删除",
+                                                                                   "Keychain refused to delete the key; search com.haifeng.vibegauge.usage-key in Keychain Access to remove it"))
+            }
+            self?.updateStatus()
+        }
+        actions.connectCLI = { [weak self] c in
+            self?.menu.cancelTracking()
+            OfficialQuota.shared.openConnect(c)
+        }
 
         let dashboard = DashboardView(
-            report: report,
+            store: reportStore,
             settings: PanelSettings(autoClean: isAutoCleanEnabled,
                                     launchAtLogin: isLaunchAtLoginEnabled(),
                                     thresholdNotify: isThresholdNotifyEnabled,
@@ -441,10 +526,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cardItem.view = hosting
         menu.addItem(cardItem)
 
-        menu.addItem(NSMenuItem.separator())
-
-        let quitItem = NSMenuItem(title: "退出 VibeGauge", action: #selector(quitAction), keyEquivalent: "q")
+        // 退出按钮在面板底栏（右边是语言切换）；这里留一个隐藏项，只为 ⌘Q 照常可用
+        let quitItem = NSMenuItem(title: L("退出 VibeGauge", "Quit VibeGauge"), action: #selector(quitAction), keyEquivalent: "q")
         quitItem.target = self
+        quitItem.isHidden = true
+        quitItem.allowsKeyEquivalentWhenHidden = true
         menu.addItem(quitItem)
     }
 
@@ -463,16 +549,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Actions
     // kill 里有 300ms 等待，rm -rf 走盘：都不在主线程做
-    @objc func cleanOrphansAction() {
-        let targets = currentReport.orphans
+    @objc func cleanOrphansAction() { cleanOrphans(currentReport.orphans) }
+
+    /// targets = 用户在面板上看到的那一份；killProcesses 发信号前还会逐个复核 pid 与命令行
+    private func cleanOrphans(_ targets: [OrphanProc]) {
         guard !targets.isEmpty else { return }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let r = ProcessScanner.shared.killProcesses(targets)
             DispatchQueue.main.async {
                 self?.sendNotification(
-                    title: "清理完成",
-                    body: "已释放 \(r.killed) 个断链 AI 进程，回收 \(String(format: "%.0f", r.freedMB)) MB 内存。" + (r.skipped > 0 ? "（\(r.skipped) 个已自行退出或 pid 变化，已跳过）" : "")
+                    title: L("清理完成", "Cleanup complete"),
+                    body: L("已释放 \(r.killed) 个断链 AI 进程，回收 \(String(format: "%.0f", r.freedMB)) MB 内存。", "Freed \(String(format: "%.0f", r.freedMB)) MB by reaping \(r.killed) orphaned AI processes.") + (r.skipped > 0 ? L("（\(r.skipped) 个已自行退出或 pid 变化，已跳过）", " (\(r.skipped) already exited or changed pid; skipped)") : "")
                 )
                 self?.updateStatus()
             }
@@ -480,23 +568,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// 删文件是不可逆动作 → 先弹确认，把"删什么、删多少、会失去什么、能不能捞回来"全写清楚
-    @objc func purgeLogsAction() {
+    @objc func purgeLogsAction() { purgeLogs(currentReport.disk.filter { $0.purgeable && $0.oldMB >= 1 }) }
+
+    private func purgeLogs(_ items: [DiskItem]) {
         let days = ProcessScanner.shared.logRetentionDays
-        let items = currentReport.disk.filter { $0.purgeable && $0.oldMB >= 1 }
         let totalMB = items.reduce(0.0) { $0 + $1.oldMB }
         let totalFiles = items.reduce(0) { $0 + $1.oldFiles }
         guard totalFiles > 0 else { return }
 
         let alert = NSAlert()
-        alert.messageText = "清理 \(days) 天前的会话记录？"
+        alert.messageText = L("清理 \(days) 天前的会话记录？", "Clean session records older than \(days) days?")
         alert.informativeText = items.map {
-            String(format: "· %@：%d 个文件 %.0f MB\n  %@", $0.label, $0.oldFiles, $0.oldMB, $0.note)
+            String(format: L("· %@：%d 个文件 %.0f MB\n  %@", "· %@: %d files %.0f MB\n  %@"), $0.label, $0.oldFiles, $0.oldMB, $0.note)
         }.joined(separator: "\n")
-        + String(format: "\n\n合计 %d 个文件 %.2f GB，移入废纸篓（可恢复）。\n近 %d 天的一个都不动。",
+        + String(format: L("\n\n合计 %d 个文件 %.2f GB，移入废纸篓（可恢复）。\n近 %d 天的一个都不动。", "\n\nTotal: %d files, %.2f GB, moved to Trash (recoverable).\nFiles newer than %d days are untouched."),
                  totalFiles, totalMB / 1024, days)
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L("移入废纸篓", "Move to Trash"))
+        alert.addButton(withTitle: L("取消", "Cancel"))
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -504,9 +593,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let r = ProcessScanner.shared.purgeOldSessionLogs(olderThanDays: days)
             DispatchQueue.main.async {
                 self?.sendNotification(
-                    title: "会话记录已清理",
-                    body: String(format: "%d 个文件、%.2f GB 已移入废纸篓。", r.files, r.freedMB / 1024)
-                        + (r.failed > 0 ? "（\(r.failed) 个失败，多半是权限）" : "")
+                    title: L("会话记录已清理", "Session records cleaned"),
+                    body: String(format: L("%d 个文件、%.2f GB 已移入废纸篓。", "%d files, %.2f GB moved to Trash."), r.files, r.freedMB / 1024)
+                        + (r.failed > 0 ? L("（\(r.failed) 个失败，多半是权限）", " (\(r.failed) failed, likely permissions)") : "")
                 )
                 self?.updateStatus()
             }
@@ -518,8 +607,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let freedMB = ProcessScanner.shared.cleanNPXCache()
             DispatchQueue.main.async {
                 self?.sendNotification(
-                    title: "NPX 缓存已清理",
-                    body: "已清空 ~/.npm/_npx 目录，释放约 \(String(format: "%.1f", freedMB)) MB 磁盘空间。"
+                    title: L("NPX 缓存已清理", "NPX cache cleaned"),
+                    body: L("已清空 ~/.npm/_npx 目录，释放约 \(String(format: "%.1f", freedMB)) MB 磁盘空间。", "Cleared ~/.npm/_npx and freed about \(String(format: "%.1f", freedMB)) MB of disk space.")
                 )
                 self?.updateStatus()
             }
@@ -528,10 +617,112 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func installProxy() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var msg = "已安装并启动，前缀 \(ProxyManager.shared.prefix)，登录自启。"
-            do { try ProxyManager.shared.install() } catch { msg = "安装失败：\(error.localizedDescription)" }
+            var msg = L("已安装并启动，前缀 \(ProxyManager.shared.prefix)，登录自启。", "Installed and started; prefix \(ProxyManager.shared.prefix); starts at login.")
+            do { try ProxyManager.shared.install() } catch { msg = L("安装失败：\(error.localizedDescription)", "Installation failed: \(error.localizedDescription)") }
             DispatchQueue.main.async {
-                self?.sendNotification(title: "API 记账代理", body: msg)
+                self?.sendNotification(title: L("API 记账代理", "API accounting proxy"), body: msg)
+                self?.updateStatus()
+            }
+        }
+    }
+
+    func checkForUpdate() {
+        UpdateChecker.shared.checkIfDue { [weak self] v in
+            self?.sendNotification(title: L("VibeGauge 有新版本 v\(v)", "VibeGauge v\(v) is available"),
+                                   body: L("点面板底部的「新版本」打开下载页。", "Click “Update” at the bottom of the panel to open the download page."))
+        }
+    }
+
+    /// 登记一个查额度用的 API key：选厂商 + 粘贴 key → 存钥匙串（不落任何文件），随后后台查一次
+    func addUsageKey() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L("添加 API key 查额度", "Add an API key for quota")
+        alert.informativeText = L("key 只存进本机钥匙串，只发给该厂商自己的用量 / 余额接口，每 5 分钟查一次；不经过记账代理也能看到。",
+                                  "The key is stored only in your Keychain and sent only to that provider's own usage / balance endpoint, every 5 minutes. Works without the proxy.")
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 32, width: 300, height: 26), pullsDown: false)
+        popup.addItems(withTitles: OfficialQuota.providers.map { "\($0.name) · \($0.host)" })
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.placeholderString = "API key"
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
+        box.addSubview(popup)
+        box.addSubview(field)
+        alert.accessoryView = box
+        alert.addButton(withTitle: L("保存", "Save"))
+        alert.addButton(withTitle: L("取消", "Cancel"))
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let p = OfficialQuota.providers[max(0, popup.indexOfSelectedItem)]
+        do {
+            try OfficialQuota.shared.register(host: p.host, key: field.stringValue)
+            sendNotification(title: L("已保存到钥匙串", "Saved to Keychain"),
+                             body: L("\(p.name) 的额度会在一分钟内出现在「API」或「订阅」页。", "\(p.name) usage shows up on the API or Plans tab within a minute."))
+        } catch {
+            sendNotification(title: L("没有保存", "Not saved"), body: error.localizedDescription)
+        }
+        updateStatus()
+    }
+
+    /// 连接 / 断开状态栏桥接（改的是 Claude Code / agy 的 settings.json，脚本会先备份）
+    /// 待处理会话：往 Claude Code 的 hooks 里写（或删）本脚本的观察型 Hook
+    func setPendingHooks(_ on: Bool) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var title = on ? L("待处理会话已开启", "Pending sessions on") : L("待处理会话已关闭", "Pending sessions off")
+            var body = on
+                ? L("新开的 Claude Code 会话生效。只记事件类型和时间，不代你批准；原配置已备份为 settings.json.vibegauge-hooks-backup。",
+                    "Takes effect in new Claude Code sessions. Only event types and times are recorded; it never answers for you. Settings backed up to settings.json.vibegauge-hooks-backup.")
+                : L("已从 Claude Code 配置里删掉 VibeGauge 的 Hook，其他 Hook 不动。", "VibeGauge's hooks were removed from Claude Code settings; other hooks are untouched.")
+            do {
+                if on { try StatuslineBridge.shared.connectHooks() } else { try StatuslineBridge.shared.disconnectHooks() }
+            } catch {
+                title = on ? L("开启失败", "Couldn't turn on") : L("关闭失败", "Couldn't turn off")
+                body = error.localizedDescription
+            }
+            DispatchQueue.main.async {
+                self?.sendNotification(title: title, body: body)
+                self?.updateStatus()
+            }
+        }
+    }
+
+    // MARK: - 等你处理的会话提醒：等批准超过 1 分钟，每次等待只提醒一次
+    static let pendingNotifyAfter: TimeInterval = 60
+
+    /// 已提醒过的等待（会话@起点 → 提醒时刻）存盘：重启、一次读不到文件都不会重报；24 小时后自然清掉
+    private func evaluatePending(_ report: ScanReport) {
+        let now = Date().timeIntervalSince1970
+        let key = "vg.pendingNotified"
+        var notified = (UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]).filter { now - $0.value < 86400 }
+        for p in report.pending where p.kind == .permission && now - p.since >= Self.pendingNotifyAfter {
+            let id = "\(p.id)@\(Int(p.since))"
+            guard notified[id] == nil else { continue }
+            notified[id] = now
+            let dir = (p.cwd as NSString).lastPathComponent
+            // 批准本身没有 Hook 事件：能确定的只有「请求过批准、还没结果」，文案不说死「在等你」
+            sendNotification(title: L("⏸ 会话可能在等你批准", "⏸ A session may be waiting for approval"),
+                             body: L("\(dir.isEmpty ? "Claude Code" : dir)：\(p.tool.isEmpty ? "工具调用" : p.tool) 请求批准已 \(Int((now - p.since) / 60)) 分钟，还没有结果",
+                                     "\(dir.isEmpty ? "Claude Code" : dir): \(p.tool.isEmpty ? "a tool call" : p.tool) asked for approval \(Int((now - p.since) / 60)) min ago, no result yet"))
+        }
+        UserDefaults.standard.set(notified, forKey: key)
+    }
+
+    func setQuotaBridge(_ raw: String, on: Bool) {
+        guard let tool = StatuslineBridge.Tool(rawValue: raw) else { return }
+        let name = tool == .claude ? "Claude Code" : "agy"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var title = on ? L("额度已连接", "Quota connected") : L("额度连接已断开", "Quota disconnected")
+            var body = on
+                ? L("在 \(name) 里发一条消息，额度就会出现在面板上。原状态栏照常显示，原配置已备份为 settings.json.vibegauge-backup。",
+                    "Send a message in \(name) and the quota shows up here. Your status line is unchanged; settings were backed up to settings.json.vibegauge-backup.")
+                : L("\(name) 的状态栏已还原。", "\(name) status line restored.")
+            do {
+                if on { try StatuslineBridge.shared.connect(tool) } else { try StatuslineBridge.shared.disconnect(tool) }
+            } catch {
+                title = on ? L("连接失败", "Couldn't connect") : L("断开失败", "Couldn't disconnect")
+                body = error.localizedDescription
+            }
+            DispatchQueue.main.async {
+                self?.sendNotification(title: title, body: body)
                 self?.updateStatus()
             }
         }
@@ -541,7 +732,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             ProxyManager.shared.uninstall()
             DispatchQueue.main.async {
-                self?.sendNotification(title: "API 记账代理", body: "已停止并卸载。记账文件保留在 ~/.config/vibegauge/。")
+                self?.sendNotification(title: L("API 记账代理", "API accounting proxy"), body: L("已停止并卸载。记账文件保留在 ~/.config/vibegauge/。", "Stopped and uninstalled. Accounting files remain in ~/.config/vibegauge/."))
                 self?.updateStatus()
             }
         }
