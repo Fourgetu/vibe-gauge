@@ -106,7 +106,14 @@ public sealed class UsageScanner
         var rewritten = tailChanged || state.Source != source || state.Offset > stream.Length || stream.Length < state.Size ||
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
                         stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks;
-        if (rewritten) state = new FileState { Source = source };
+        if (rewritten)
+        {
+            // A deleted or rewritten conversation does not undo recorded consumption.
+            // Reset the read cursor, but retain completed PI usage keyed by message ID.
+            var retained = source == PiDesktopUsage.SourceName && state.Source == source ? state.Records : null;
+            state = new FileState { Source = source };
+            if (retained is not null) state.Records = retained;
+        }
         if (state.Size == stream.Length && state.LastWriteUtcTicks == info.LastWriteTimeUtc.Ticks && state.Head == head)
             return false;
 
@@ -265,7 +272,9 @@ public sealed class UsageScanner
         }
         var codexFiles = cache.Files.Where(x => x.Value.Source == "Codex" && activePaths.Contains(x.Key)).ToArray();
         var codex = codexFiles.SelectMany(file => file.Value.Records.Values).ToArray();
-        var piFiles = cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName && activePaths.Contains(x.Key)).ToArray();
+        var piFiles = cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName)
+            .OrderByDescending(x => x.Value.LastWriteUtcTicks)
+            .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase).ToArray();
         var pi = PiRecords(piFiles).ToArray();
         var apiFiles = cache.Files.Where(x => x.Value.Source == "API" && activePaths.Contains(x.Key)).ToArray();
         var api = apiFiles.SelectMany(file => file.Value.Records.Values).ToArray();
@@ -330,8 +339,7 @@ public sealed class UsageScanner
         var archivedClaude = MostRecentPerId(cache.Files.Where(x => x.Value.Source == "Claude")
             .SelectMany(x => x.Value.Records.Values));
         var archivedCodex = cache.Files.Where(x => x.Value.Source == "Codex").SelectMany(x => x.Value.Records.Values);
-        var archivedPi = PiRecords(cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName))
-            .Where(x => x.Timestamp <= now).ToArray();
+        var archivedPi = pi.Where(x => x.Timestamp <= now).ToArray();
         var piTotal = SourceSummary(PiDesktopUsage.SourceName, archivedPi,
             piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无 token 统计");
         return new(cli, apiSummary, UsageStatistics.Build(archivedClaude.Concat(archivedCodex).Concat(archivedPi), now), piTotal);

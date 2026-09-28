@@ -129,14 +129,127 @@ public sealed class PiDesktopUsageTests : IDisposable
     }
 
     [Fact]
-    public void RewrittenLogsReplacePreviousContributionAndBadLinesDoNotBlockGoodOnes()
+    public void RewrittenLogsRetainRecordedConsumptionAndBadLinesDoNotBlockGoodOnes()
     {
         var path = Write("a", Message("one"), Message("two"));
         var scanner = new UsageScanner(Paths);
         Assert.Equal(2, scanner.ScanToday().Turns);
         File.WriteAllText(path, "not json\n" + Message("replacement") + "\n");
+        Assert.Equal(3, scanner.ScanToday().Turns);
+        Assert.Equal(3, scanner.Scan().PiDesktopTotal!.Turns);
+        Assert.Equal(3, new UsageScanner(Paths).Scan().PiDesktopTotal!.Turns);
+    }
+
+    [Fact]
+    public void DeletedConversationRetainsTodayHistoryAndRecentUsageAfterRestart()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var path = Write("deleted", Message("first"), Message("second"), Message("third"),
+            Message("historical", DateTimeOffset.Now.AddDays(-2)));
+        var scanner = new UsageScanner(Paths);
+        var before = scanner.Scan();
+        File.Delete(path);
+
+        foreach (var result in new[] { scanner.Scan(), new UsageScanner(Paths).Scan() })
+        {
+            var source = Assert.Single(result.Cli.Sources, x => x.Name == PiDesktopUsage.SourceName);
+            Assert.Equal(UsageDataState.Available, source.State);
+            Assert.Equal(3, source.Turns);
+            Assert.Equal(before.Cli.TotalTokens, source.TotalTokens);
+            Assert.Equal(3, result.Cli.Recent.Count);
+            Assert.Equal(4, result.PiDesktopTotal!.Turns);
+            Assert.Equal(before.PiDesktopTotal!.TotalTokens, result.PiDesktopTotal.TotalTokens);
+            Assert.Equal(source.TotalTokens, result.Statistics!.ForPeriod(today, today).TotalTokens);
+            Assert.Equal(result.PiDesktopTotal.TotalTokens, result.Statistics.Days.Sum(x => x.TotalTokens));
+            Assert.Equal(0, result.Api.Calls);
+        }
+    }
+
+    [Fact]
+    public void DeletedSessionsDirectoryKeepsPersistedUsageWithoutRestoringFiles()
+    {
+        Write("deleted", Message("one"));
+        var scanner = new UsageScanner(Paths);
+        scanner.Scan();
+        Directory.Delete(Paths.PiDesktopRoot, recursive: true);
+
+        var result = new UsageScanner(Paths).Scan();
+        Assert.Equal(1, result.Cli.Turns);
+        Assert.Equal(138, result.PiDesktopTotal!.TotalTokens);
+        Assert.False(Directory.Exists(Paths.PiDesktopRoot));
+    }
+
+    [Fact]
+    public void TruncationAndReplacementAtSamePathDoNotErasePreviouslyRecordedUsage()
+    {
+        var path = Write("rewritten", Message("one"), Message("two"));
+        var scanner = new UsageScanner(Paths);
+        Assert.Equal(2, scanner.ScanToday().Turns);
+        File.WriteAllText(path, "");
+        Assert.Equal(2, scanner.ScanToday().Turns);
+        File.AppendAllText(path, Message("three") + "\n");
+        Assert.Equal(3, scanner.ScanToday().Turns);
+        File.Delete(path);
+        scanner.Scan();
+        Write("rewritten", Message("four"));
+
+        var result = new UsageScanner(Paths).Scan();
+        Assert.Equal(4, result.Cli.Turns);
+        Assert.Equal(4 * 138, result.PiDesktopTotal!.TotalTokens);
+    }
+
+    [Fact]
+    public void RestoredAndCopiedConversationsAreNotCountedTwice()
+    {
+        var line = Message("stable-message-id");
+        var path = Write("original", line);
+        var scanner = new UsageScanner(Paths);
+        scanner.Scan();
+        File.Delete(path);
         Assert.Equal(1, scanner.ScanToday().Turns);
-        Assert.Equal(1, scanner.Scan().PiDesktopTotal!.Turns);
+        Write("restored", line);
+        Write("copy", line);
+        Assert.Equal(1, scanner.ScanToday().Turns);
+        Assert.Equal(138, new UsageScanner(Paths).Scan().PiDesktopTotal!.TotalTokens);
+    }
+
+    [Fact]
+    public void RestoredFileCorrectionsTakePrecedenceOverAnArchivedCopy()
+    {
+        var line = Message("stable-message-id");
+        var path = Write("original", line);
+        var scanner = new UsageScanner(Paths);
+        scanner.Scan();
+        File.Delete(path);
+        var corrected = JsonNode.Parse(line)!;
+        corrected["meta"]!["usage"]!["inputTokens"] = 40;
+        var restored = Write("restored", corrected.ToJsonString());
+        File.SetLastWriteTimeUtc(restored, DateTime.UtcNow.AddSeconds(2));
+
+        var result = scanner.Scan();
+        Assert.Equal(1, result.PiDesktopTotal!.Turns);
+        Assert.Equal(158, result.PiDesktopTotal.TotalTokens);
+        Assert.Equal(158, new UsageScanner(Paths).Scan().PiDesktopTotal!.TotalTokens);
+        File.Delete(restored);
+        Assert.Equal(158, scanner.Scan().PiDesktopTotal!.TotalTokens);
+        Assert.Equal(158, new UsageScanner(Paths).Scan().PiDesktopTotal!.TotalTokens);
+    }
+
+    [Fact]
+    public void CorrectedUsageForSameMessageReplacesValuesInsteadOfAddingAnotherCall()
+    {
+        var path = Write("corrected", Message("stable-message-id"));
+        var scanner = new UsageScanner(Paths);
+        Assert.Equal(138, scanner.Scan().PiDesktopTotal!.TotalTokens);
+        var corrected = JsonNode.Parse(File.ReadAllText(path))!;
+        corrected["meta"]!["usage"]!["inputTokens"] = 40;
+        File.WriteAllText(path, corrected.ToJsonString() + "\n");
+
+        var result = scanner.Scan();
+        Assert.Equal(1, result.PiDesktopTotal!.Turns);
+        Assert.Equal(158, result.PiDesktopTotal.TotalTokens);
+        File.Delete(path);
+        Assert.Equal(158, new UsageScanner(Paths).Scan().PiDesktopTotal!.TotalTokens);
     }
 
     [Fact]

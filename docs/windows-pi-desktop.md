@@ -9,7 +9,7 @@ The macOS implementation is unchanged.
 - Does not change PI-Desktop, its shortcuts, database, provider settings, credentials, or proxy configuration.
 - Does not collect or persist conversation text, attachments, API keys, or provider URLs.
 - Detects `PI-Desktop.exe` by executable name and collapses child processes. The card says running/stopped rather than presenting Electron process counts as conversation counts.
-- Uses the existing incremental log cursor and local VibeGauge statistics cache. No additional runtime, database driver, API key, or network service is required.
+- Uses the existing incremental log cursor and local VibeGauge statistics cache as a usage history, independent of whether a conversation still exists. No additional runtime, database driver, API key, or network service is required.
 
 ## Metrics
 
@@ -18,12 +18,15 @@ The macOS implementation is unchanged.
 - Output = `outputTokens`; reasoning = `reasoningTokens`, which is already included in output and must not be added again.
 - Compaction calls use their top-level `usage` with `input`, `cacheRead`, `cacheWrite`, `output`, and `reasoning` fields.
 - Each usage-bearing assistant response or compaction counts as a call, not a whole user turn. Repeated message IDs, including copied logs, count once.
+- Deleting a conversation, removing the sessions directory, or truncating/rewriting a log does not subtract previously recorded consumption. A rewritten file resets its read cursor but retains completed usage records; corrected usage for an existing message ID replaces that record instead of adding a call. For duplicate message IDs with equal timestamps, the latest cached file revision takes precedence; deleting that file does not change the selection.
 - Incomplete JSONL tails wait until complete; streaming/pending messages, missing required usage fields, malformed numbers, empty usage, and future timestamps do not count.
 - Today follows the Windows local date. The card includes today's calls/context and locally observed cumulative calls/context/output/reasoning/cache reads.
 - PI-Desktop contributes to the combined daily usage, recent activity, model mix, calendar, and hourly statistics. It is not copied into the independent proxy/API usage totals.
 - No invented subscription quota, remaining credits, or currency charge is shown. Token logs alone cannot establish actual billing.
 
-The cumulative label describes locally observed logs plus VibeGauge's retained history, not a provider-side account lifetime total. Deleted or never-downloaded history cannot be recovered.
+The cumulative label describes locally observed logs plus VibeGauge's retained history, not a provider-side account lifetime total. Both today's figures and the historical statistics include retained records after source deletion. Existing version-1 cache entries can restore previously hidden totals without recreating conversations. History deleted before VibeGauge ever recorded it, or removed from its cache before this fix, cannot be reconstructed from rounded screenshots.
+
+Only usage metadata is retained, never deleted conversation text or attachments. This fixes retention only; token-field interpretation and the separate API accounting remain unchanged.
 
 ## Verification
 
