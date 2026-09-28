@@ -103,7 +103,11 @@
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="{Binding IsSystemSelected, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel Margin="0,0,5,12">
-                        <TextBlock Text="系统资源" Style="{StaticResource SectionTitleStyle}" Margin="0,2,0,10" />
+                        <Grid Margin="0,2,0,10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="系统资源" Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock x:Name="SystemAppVersion" Grid.Column="1" Text="{Binding AppVersionText, StringFormat=VibeGauge {0}}" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="当前运行版本" />
+                        </Grid>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="内存" FontWeight="SemiBold" /><TextBlock Text="{Binding MemoryText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding MemoryUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="系统磁盘" FontWeight="SemiBold" /><TextBlock Text="{Binding DiskText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding DiskUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
                         <UniformGrid Columns="2" Margin="0,0,0,8">

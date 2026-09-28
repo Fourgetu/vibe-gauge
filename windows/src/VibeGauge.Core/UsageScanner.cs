@@ -57,7 +57,7 @@ public sealed class UsageScanner
 
             if (cacheDirty) cacheDirty = !SaveCache();
             LastDiagnostics = new(discovered.Count, filesRead, bytesRead);
-            return Summarize(discovered, errors);
+            return Summarize(errors);
         }
     }
 
@@ -66,6 +66,7 @@ public sealed class UsageScanner
         var result = new List<DiscoveredFile>();
         AddFiles(result, Path.Combine(paths.ClaudeRoot, "projects"), "Claude");
         AddFiles(result, Path.Combine(paths.CodexRoot, "sessions"), "Codex");
+        AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
         AddFiles(result, paths.PiDesktopSessions, PiDesktopUsage.SourceName);
         var api = paths.ResolveOwnDataFile("api-calls.jsonl");
         if (File.Exists(api)) result.Add(new(api, "API"));
@@ -105,14 +106,21 @@ public sealed class UsageScanner
         }
         var rewritten = tailChanged || state.Source != source || state.Offset > stream.Length || stream.Length < state.Size ||
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
-                        stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks;
+                        stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks ||
+                        source == "Codex" && !state.SessionIdentityRead;
         if (rewritten)
         {
             // A deleted or rewritten conversation does not undo recorded consumption.
-            // Reset the read cursor, but retain completed PI usage keyed by message ID.
-            var retained = source == PiDesktopUsage.SourceName && state.Source == source ? state.Records : null;
-            state = new FileState { Source = source };
-            if (retained is not null) state.Records = retained;
+            var retained = state.Source == source ? state : null;
+            state = new FileState { Source = source, SessionId = retained?.SessionId ?? "" };
+            if (retained is not null)
+            {
+                state.Records = retained.Records;
+                state.Sequence = retained.Sequence;
+                if (source is "Codex" or "API")
+                    state.ReplayRemaining = retained.Records.Values.GroupBy(UsageIdentity.From)
+                        .ToDictionary(x => UsageFingerprint(x.Key), x => x.Count(), StringComparer.Ordinal);
+            }
         }
         if (state.Size == stream.Length && state.LastWriteUtcTicks == info.LastWriteTimeUtc.Ticks && state.Head == head)
             return false;
@@ -126,6 +134,7 @@ public sealed class UsageScanner
         bytesRead = stream.Length - state.Offset;
         state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(line, state),
             JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
+        state.SessionIdentityRead = true;
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -204,6 +213,8 @@ public sealed class UsageScanner
         var type = root.StringOrEmpty("type");
         if (type is "turn_context" or "session_meta")
         {
+            if (type == "session_meta" && payload.StringOrEmpty("id") is { Length: > 0 } sessionId)
+                state.SessionId = sessionId;
             var contextModel = payload.StringOrEmpty("model");
             if (contextModel.Length > 0) state.Model = contextModel;
             return;
@@ -228,11 +239,11 @@ public sealed class UsageScanner
         if (timestamp is null) { state.Skipped++; return; }
         var model = payload.StringOrEmpty("model");
         if (model.Length == 0) model = state.Model;
-        var id = (state.Sequence++).ToString();
-        state.Records[id] = new(
+        var id = state.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        StoreSequencedRecord(state, new(
             id, "Codex", model.Length == 0 ? "Codex" : model, timestamp.Value,
             usage["input_tokens"], usage["cached_input_tokens"], usage["cache_write_input_tokens"],
-            usage["output_tokens"], usage["reasoning_output_tokens"]);
+            usage["output_tokens"], usage["reasoning_output_tokens"]));
     }
 
     private static void ConsumeApi(JsonElement root, FileState state)
@@ -248,39 +259,28 @@ public sealed class UsageScanner
         var key = root.StringOrEmpty("key");
         if (key.Length > 0) provider += " · " + key;
         var model = root.StringOrEmpty("model");
-        var id = (state.Sequence++).ToString();
-        state.Records[id] = new(
+        var id = state.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        StoreSequencedRecord(state, new(
             id, "API · " + provider, model.Length == 0 ? "?" : model, timestamp.Value,
             NonNegative(root, "ctx"), NonNegative(root, "cache_read"), NonNegative(root, "cache_write"),
             NonNegative(root, "out"), NonNegative(root, "think"),
-            (int)NonNegative(root, "status"), (int)NonNegative(root, "ms"));
+            (int)NonNegative(root, "status"), (int)NonNegative(root, "ms")));
     }
 
-    private UsageScanResult Summarize(IReadOnlyList<DiscoveredFile> discovered, IReadOnlyCollection<string> errors)
+    private UsageScanResult Summarize(IReadOnlyCollection<string> errors)
     {
         var start = new DateTimeOffset(DateTime.Today);
-        var activePaths = discovered.Select(x => x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var claudeFiles = cache.Files.Where(x => x.Value.Source == "Claude" && activePaths.Contains(x.Key)).ToArray();
-        var claude = new Dictionary<string, InteractionRecord>(StringComparer.Ordinal);
-        foreach (var file in claudeFiles.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            foreach (var record in file.Value.Records.Values)
-            {
-                if (!claude.TryGetValue(record.Id, out var old) || old.Timestamp < record.Timestamp)
-                    claude[record.Id] = record;
-            }
-        }
-        var codexFiles = cache.Files.Where(x => x.Value.Source == "Codex" && activePaths.Contains(x.Key)).ToArray();
-        var codex = codexFiles.SelectMany(file => file.Value.Records.Values).ToArray();
-        var piFiles = cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName)
-            .OrderByDescending(x => x.Value.LastWriteUtcTicks)
-            .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+        var claudeFiles = CachedFiles("Claude");
+        var claude = MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var codexFiles = CachedFiles("Codex");
+        var codex = CodexRecords(codexFiles).ToArray();
+        var piFiles = CachedFiles(PiDesktopUsage.SourceName);
         var pi = PiRecords(piFiles).ToArray();
-        var apiFiles = cache.Files.Where(x => x.Value.Source == "API" && activePaths.Contains(x.Key)).ToArray();
-        var api = apiFiles.SelectMany(file => file.Value.Records.Values).ToArray();
+        var apiFiles = CachedFiles("API");
+        var api = MergeFileCopies(apiFiles).ToArray();
 
         var now = DateTimeOffset.Now;
-        var todayClaude = claude.Values.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var todayClaude = claude.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayCodex = codex.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayPi = pi.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).ToArray();
@@ -336,13 +336,87 @@ public sealed class UsageScanner
                     x.Status,
                     x.LatencyMs))
                 .ToArray());
-        var archivedClaude = MostRecentPerId(cache.Files.Where(x => x.Value.Source == "Claude")
-            .SelectMany(x => x.Value.Records.Values));
-        var archivedCodex = cache.Files.Where(x => x.Value.Source == "Codex").SelectMany(x => x.Value.Records.Values);
         var archivedPi = pi.Where(x => x.Timestamp <= now).ToArray();
         var piTotal = SourceSummary(PiDesktopUsage.SourceName, archivedPi,
             piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无 token 统计");
-        return new(cli, apiSummary, UsageStatistics.Build(archivedClaude.Concat(archivedCodex).Concat(archivedPi), now), piTotal);
+        return new(cli, apiSummary, UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi), now), piTotal);
+    }
+
+    private KeyValuePair<string, FileState>[] CachedFiles(string source) =>
+        cache.Files.Where(x => x.Value.Source == source)
+            .OrderByDescending(x => x.Value.LastWriteUtcTicks)
+            .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+
+    private static void StoreSequencedRecord(FileState state, InteractionRecord record)
+    {
+        // Codex/API IDs are file-local sequence numbers, not provider message IDs.
+        // Keep replay matches across incremental reads and restarts: a truncated
+        // file may be restored in chunks. Counts preserve identical real calls.
+        if (state.ReplayRemaining.Count > 0)
+        {
+            var key = UsageFingerprint(UsageIdentity.From(record));
+            if (state.ReplayRemaining.TryGetValue(key, out var count))
+            {
+                if (count <= 1) state.ReplayRemaining.Remove(key);
+                else state.ReplayRemaining[key] = count - 1;
+                return;
+            }
+        }
+        state.Records[record.Id] = record;
+        state.Sequence++;
+    }
+
+    private static string UsageFingerprint(UsageIdentity identity) =>
+        Fingerprint(JsonSerializer.SerializeToUtf8Bytes(identity));
+
+    private static IEnumerable<InteractionRecord> CodexRecords(KeyValuePair<string, FileState>[] files)
+    {
+        foreach (var session in files.GroupBy(CodexSessionKey, StringComparer.Ordinal))
+            foreach (var record in MergeFileCopies(session.ToArray())) yield return record;
+    }
+
+    private static IEnumerable<InteractionRecord> MergeFileCopies(KeyValuePair<string, FileState>[] files)
+    {
+        if (files.Length == 1)
+        {
+            foreach (var record in files[0].Value.Records.Values) yield return record;
+            yield break;
+        }
+        var seen = new Dictionary<UsageIdentity, int>();
+        foreach (var file in files)
+        {
+            var occurrences = new Dictionary<UsageIdentity, int>();
+            foreach (var record in file.Value.Records.Values)
+            {
+                var identity = UsageIdentity.From(record);
+                var occurrence = occurrences.GetValueOrDefault(identity) + 1;
+                occurrences[identity] = occurrence;
+                if (occurrence <= seen.GetValueOrDefault(identity)) continue;
+                seen[identity] = occurrence;
+                yield return record;
+            }
+        }
+    }
+
+    private static string CodexSessionKey(KeyValuePair<string, FileState> file)
+    {
+        var id = file.Value.SessionId;
+        if (id.Length > 0) return "session:" + (Guid.TryParse(id, out var parsed) ? parsed.ToString("D") : id);
+        // Version-1 caches did not store session metadata. Standard rollout file
+        // names contain the session UUID, including files already deleted on disk.
+        var name = Path.GetFileNameWithoutExtension(file.Key);
+        if (name.Length >= 36 && Guid.TryParse(name[^36..], out var legacyId))
+            return "session:" + legacyId.ToString("D");
+        return "path:" + file.Key.ToUpperInvariant();
+    }
+
+    private readonly record struct UsageIdentity(
+        string Source, string Model, long TimestampTicks,
+        long Context, long Read, long Write, long Output, long Thinking, int Status, int Latency)
+    {
+        public static UsageIdentity From(InteractionRecord value) => new(
+            value.Source, value.Model, value.Timestamp.UtcTicks, value.ContextTokens, value.CacheReadTokens,
+            value.CacheWriteTokens, value.OutputTokens, value.ThinkingTokens, value.Status, value.LatencyMs);
     }
 
     private static IEnumerable<InteractionRecord> PiRecords(IEnumerable<KeyValuePair<string, FileState>> files) =>
@@ -497,6 +571,8 @@ public sealed class UsageScanner
     {
         public string Source { get; set; } = "";
         public string Model { get; set; } = "?";
+        public string SessionId { get; set; } = "";
+        public bool SessionIdentityRead { get; set; }
         public long Size { get; set; }
         public long LastWriteUtcTicks { get; set; }
         public long Offset { get; set; }
@@ -507,6 +583,7 @@ public sealed class UsageScanner
         public int Sequence { get; set; }
         public int Skipped { get; set; }
         public Dictionary<string, long>? PreviousTotal { get; set; }
+        public Dictionary<string, int> ReplayRemaining { get; set; } = new(StringComparer.Ordinal);
         public Dictionary<string, InteractionRecord> Records { get; set; } = new(StringComparer.Ordinal);
     }
 

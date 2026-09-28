@@ -74,6 +74,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<OrphanProcess> Orphans { get; } = [];
 
     public string StatusText { get => statusText; private set => Set(ref statusText, value); }
+    public string AppVersionText => AppVersionInfo.DisplayVersion;
     public string HeaderMemoryText { get => headerMemoryText; private set => Set(ref headerMemoryText, value); }
     public string HeaderApiText { get => headerApiText; private set => Set(ref headerApiText, value); }
     public string MemoryText { get => memoryText; private set => Set(ref memoryText, value); }

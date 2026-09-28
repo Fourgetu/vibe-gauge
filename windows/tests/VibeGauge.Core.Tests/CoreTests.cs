@@ -127,7 +127,7 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
-    public void RewrittenLogRevokesOldContribution()
+    public void RewrittenLogRetainsRecordedConsumption()
     {
         var project = Path.Combine(root, ".claude", "projects", "fixture");
         Directory.CreateDirectory(project);
@@ -139,8 +139,8 @@ public sealed class CoreTests : IDisposable
         File.WriteAllText(path, ClaudeLine("new", 8, 0, 0, 1, 0) + Environment.NewLine);
         var usage = scanner.ScanToday();
 
-        Assert.Equal(1, usage.Turns);
-        Assert.Equal(8, usage.ContextTokens);
+        Assert.Equal(2, usage.Turns);
+        Assert.Equal(98, usage.ContextTokens);
         Assert.Equal("new", usage.Recent[0].Id);
     }
 
