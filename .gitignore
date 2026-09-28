@@ -14,3 +14,10 @@ prices.json
 plans.json
 /VibeGauge-*
 __pycache__/
+windows/**/bin/
+windows/**/obj/
+windows/artifacts/
+*.user
+*.suo
+!windows/tests/Fixtures/UiData/.claude/
+!windows/tests/Fixtures/UiData/.claude/**

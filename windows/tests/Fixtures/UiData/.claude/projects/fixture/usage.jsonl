@@ -1,0 +1,1 @@
+{"type":"assistant","timestamp":"2026-09-22T12:00:00+08:00","requestId":"ui-claude-1","message":{"model":"claude-opus-5-20260901","usage":{"input_tokens":1200,"cache_read_input_tokens":650000,"cache_creation_input_tokens":1800,"output_tokens":4051,"output_tokens_details":{"thinking_tokens":2118}}}}

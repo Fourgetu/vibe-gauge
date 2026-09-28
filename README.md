@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MaxHaiCom/VibeGauge/releases"><img src="https://img.shields.io/github/v/release/MaxHaiCom/VibeGauge?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/Fourgetu/vibe-gauge/releases"><img src="https://img.shields.io/github/v/release/Fourgetu/vibe-gauge?style=flat-square&color=blue" alt="Release"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey?style=flat-square&logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Language-Swift%20%2F%20SwiftUI-orange?style=flat-square&logo=swift" alt="Swift Native">
   <img src="https://img.shields.io/badge/Dependencies-Zero%20(Pure%20Native)-success?style=flat-square" alt="Zero Dependencies">
@@ -94,11 +94,25 @@ When using autonomous coding agents like **Claude Code**, **OpenAI Codex**, **Go
 
 ## 🚀 Quick Start
 
+### Windows 11 (x64)
+
+The native WPF tray app includes movable/resizable acrylic panels, persistent light/dark themes, slim scrollbars, quota confidence and forecasts, Claude/Codex session context, opt-in Claude observation hooks, date-linked calendar/hourly usage statistics, PI-Desktop consumption monitoring, native network metrics, local model monitoring, and a standalone accounting proxy. Official and custom [sub2api quota keys](docs/windows-sub2api.md) are stored in Windows Credential Manager. See [v1.4.0 release notes](docs/releases/v1.4.0.md) and [port coverage and remaining platform differences](docs/windows-upstream-1.3.1.md).
+
+Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.4.0/VibeGauge-Setup-v1.4.0.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.4.0/VibeGauge-Windows-x64-v1.4.0.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.4.0). Windows binaries are unsigned and may trigger SmartScreen.
+
+The Windows build produces a portable ZIP and a per-user installer. Both are self-contained and require neither .NET nor Python at runtime. Use `VibeGauge-Setup-*.exe` to install; `VibeGauge.exe` is the tray application, not the installer. Keep its companion `VibeGauge.Proxy.exe` beside it when using the portable build.
+
+Build locally with the .NET 10 SDK:
+
+```powershell
+.\windows\build.ps1
+```
+
 ### Method 1: Download Pre-built Binary (Recommended)
 
 > Universal app — runs on **Apple Silicon and Intel** Macs with **macOS 14+**. UI in English / 简体中文 — follows your system, switch anytime at the panel's bottom-right.
 
-1. Download the latest `VibeGauge.zip` from [GitHub Releases](https://github.com/MaxHaiCom/VibeGauge/releases).
+1. Download the latest `VibeGauge.zip` from [GitHub Releases](https://github.com/Fourgetu/vibe-gauge/releases).
 2. Unzip and drag `VibeGauge.app` into your `/Applications` folder.
 3. Launch it. The icon will appear in your top menu bar.
 4. Using Claude Code or agy? Click **Connect quota** on its card once — the quota appears after your next message.

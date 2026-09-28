@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MaxHaiCom/VibeGauge/releases"><img src="https://img.shields.io/github/v/release/MaxHaiCom/VibeGauge?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/Fourgetu/vibe-gauge/releases"><img src="https://img.shields.io/github/v/release/Fourgetu/vibe-gauge?style=flat-square&color=blue" alt="Release"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey?style=flat-square&logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Language-Swift%20%2F%20SwiftUI-orange?style=flat-square&logo=swift" alt="Swift Native">
   <img src="https://img.shields.io/badge/Dependencies-Zero%20(Pure%20Native)-success?style=flat-square" alt="Zero Dependencies">
@@ -90,11 +90,32 @@
 
 ## 🚀 快速使用
 
+### Windows 11（x64 正式版）
+
+Windows 版使用原生 WPF 托盘界面，支持窗口拖动与缩放、深浅色毛玻璃切换、细滚动条、额度可信度与预测、Claude/Codex 上下文、可选的 Claude 待处理观察、按选中日期联动的日历/小时统计、PI-Desktop 消耗监控、本机网络与本地模型监控，以及独立 API 记账代理。官方额度密钥和[自定义 sub2api 密钥](docs/windows-sub2api.md)均存入 Windows 凭据管理器。详情见 [v1.4.0 更新说明](docs/releases/v1.4.0.md)及[移植覆盖范围与尚未对齐项](docs/windows-upstream-1.3.1.md)。
+
+下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.4.0/VibeGauge-Setup-v1.4.0.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.4.0/VibeGauge-Windows-x64-v1.4.0.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.4.0)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
+
+Windows 构建会生成免安装 ZIP 和当前用户安装包，均不需要预装 .NET 或 Python。需要安装请运行 `VibeGauge-Setup-*.exe`；`VibeGauge.exe` 是托盘主程序，不是安装器。便携使用时应保留同目录的 `VibeGauge.Proxy.exe`。
+
+本地构建需要 .NET 10 SDK：
+
+```powershell
+.\windows\build.ps1
+```
+
+只运行源码和测试：
+
+```powershell
+dotnet test .\windows\VibeGauge.slnx -c Release
+dotnet run --project .\windows\src\VibeGauge.Windows -- --selftest
+```
+
 ### 方式一：直接下载预编译 App（推荐）
 
 > Universal 通用包：**Apple Silicon 与 Intel** Mac 均可运行，需 **macOS 14+**。界面支持简体中文 / English，默认跟随系统，面板右下角可随时切换。
 
-1. 前往 [GitHub Releases](https://github.com/MaxHaiCom/VibeGauge/releases) 下载最新版 `VibeGauge.zip`。
+1. 前往 [GitHub Releases](https://github.com/Fourgetu/vibe-gauge/releases) 下载最新版 `VibeGauge.zip`。
 2. 解压并将 `VibeGauge.app` 拖入 `/Applications`（应用程序）目录。
 3. 双击打开，图标即会常驻在菜单栏右上角。
 4. 用 Claude Code 或 agy 的话，在对应卡片上点一次 **「一键连接额度」**，下一条消息后额度就会出现。

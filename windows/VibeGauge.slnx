@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/VibeGauge.Core/VibeGauge.Core.csproj" />
+  <Project Path="src/VibeGauge.Proxy/VibeGauge.Proxy.csproj" />
+  <Project Path="src/VibeGauge.Windows/VibeGauge.Windows.csproj" />
+  <Project Path="tests/VibeGauge.Core.Tests/VibeGauge.Core.Tests.csproj" />
+  <Project Path="tests/VibeGauge.Proxy.Tests/VibeGauge.Proxy.Tests.csproj" />
+  <Project Path="tests/VibeGauge.Windows.Tests/VibeGauge.Windows.Tests.csproj" />
+</Solution>

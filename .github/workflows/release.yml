@@ -40,13 +40,66 @@ jobs:
         ditto -c -k --sequesterRsrc --keepParent VibeGauge.app VibeGauge.zip
         shasum -a 256 VibeGauge.zip > VibeGauge.zip.sha256
 
-    - name: Create GitHub Release
+    - name: Stage macOS assets in draft release
       uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         files: |
           VibeGauge.zip
           VibeGauge.zip.sha256
         fail_on_unmatched_files: true
-        draft: false
+        draft: true
         prerelease: false
-        generate_release_notes: true
+        body_path: docs/releases/${{ github.ref_name }}.md
+
+  release-windows:
+    needs: release
+    runs-on: windows-2025
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up .NET 10
+      uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Check tag matches app version
+      shell: pwsh
+      run: |
+        [xml]$plist = Get-Content Resources/Info.plist
+        $nodes = $plist.plist.dict.ChildNodes
+        for ($i = 0; $i -lt $nodes.Count; $i++) {
+          if ($nodes[$i].Name -eq 'key' -and $nodes[$i].InnerText -eq 'CFBundleShortVersionString') { $version = $nodes[$i + 1].InnerText; break }
+        }
+        if ("v$version" -ne "$env:GITHUB_REF_NAME") { throw "tag $env:GITHUB_REF_NAME != Info.plist v$version" }
+
+    - name: Install NSIS
+      shell: pwsh
+      run: choco install nsis -y --no-progress
+
+    - name: Build Windows artifacts
+      shell: pwsh
+      run: ./windows/build.ps1 -RequireInstaller
+
+    - name: Add Windows files to release
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      with:
+        files: |
+          windows/artifacts/VibeGauge-Windows-x64-*.zip
+          windows/artifacts/VibeGauge-Windows-x64-*.zip.sha256
+          windows/artifacts/VibeGauge-Setup-*.exe
+          windows/artifacts/VibeGauge-Setup-*.exe.sha256
+        fail_on_unmatched_files: true
+        draft: true
+        prerelease: false
+
+    - name: Publish stable release after all builds pass
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release edit "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
