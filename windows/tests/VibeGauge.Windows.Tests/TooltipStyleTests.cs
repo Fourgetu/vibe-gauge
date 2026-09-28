@@ -35,6 +35,7 @@ public sealed class TooltipStyleTests
                     }
                 StatisticsPanelChecks.Verify();
                 UsagePanelChecks.Verify();
+                TopEdgeAutoHideChecks.Verify();
             }
             catch (Exception error) { failure = error; }
             finally { app?.Shutdown(); }

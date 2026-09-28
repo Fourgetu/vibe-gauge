@@ -99,15 +99,22 @@ public partial class App : System.Windows.Application
         if (!e.Args.Contains("--startup", StringComparer.OrdinalIgnoreCase)) tray.ShowWindow();
         if (captureUi && e.Args.Contains("--capture-compact", StringComparer.OrdinalIgnoreCase))
         {
-            window.Width = 520; window.Height = 560;
+            window.Width = 420; window.Height = 560;
             window.UpdateLayout();
         }
         var captureOutput = e.Args.FirstOrDefault(x => x.StartsWith("--capture-output=", StringComparison.OrdinalIgnoreCase));
+        if (captureUi && e.Args.Contains("--capture-usage", StringComparer.OrdinalIgnoreCase))
+        {
+            viewModel.SelectTab(0);
+            window.UpdateLayout();
+            window.PlansView.ScrollToUsageForCapture();
+        }
         if (captureUi && captureOutput is not null)
             _ = CaptureWindowAsync(window, captureOutput["--capture-output=".Length..],
                 e.Args.Contains("--capture-composited", StringComparer.OrdinalIgnoreCase),
                 e.Args.Contains("--verify-window", StringComparer.OrdinalIgnoreCase) ? () => WindowDiagnostics.Verify(window, tray, viewModel.Paths.LocalDataRoot) : null,
-                e.Args.FirstOrDefault(x => x.StartsWith("--capture-tooltip=", StringComparison.OrdinalIgnoreCase))?["--capture-tooltip=".Length..]);
+                e.Args.FirstOrDefault(x => x.StartsWith("--capture-tooltip=", StringComparison.OrdinalIgnoreCase))?["--capture-tooltip=".Length..],
+                e.Args.Contains("--verify-edge-animation", StringComparer.OrdinalIgnoreCase));
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -135,13 +142,18 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private static async Task CaptureWindowAsync(MainWindow window, string outputPath, bool composited, Func<object>? verify, string? tooltip)
+    private static async Task CaptureWindowAsync(MainWindow window, string outputPath, bool composited, Func<object>? verify, string? tooltip, bool verifyEdgeAnimation)
     {
         try
         {
             await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             await Task.Delay(500);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+            if (verifyEdgeAnimation)
+            {
+                var animation = await EdgeAnimationDiagnostics.VerifyAsync(window);
+                File.WriteAllText(outputPath + ".animation.json", JsonSerializer.Serialize(animation, new JsonSerializerOptions { WriteIndented = true }));
+            }
             if (tooltip is not null)
             {
                 var checks = await TooltipDiagnostics.CaptureAsync(window, tooltip, outputPath);

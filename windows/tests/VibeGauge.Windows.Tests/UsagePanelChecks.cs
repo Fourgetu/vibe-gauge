@@ -15,6 +15,7 @@ internal static class UsagePanelChecks
     {
         var palette = (ThemePalette)Application.Current.FindResource("ThemePalette");
         foreach (var light in new[] { false, true })
+        foreach (var width in new[] { 380, 480 })
         {
             palette.IsLight = light;
             var scroll = new ScrollViewer
@@ -81,19 +82,19 @@ internal static class UsagePanelChecks
             Named<TextBox>(panel, "UsageEndpoint").Text = "https://my-site.example/v1";
             secret.Password = "fixture-only-not-a-real-key";
             var surface = new Border { Child = panel, Padding = new Thickness(18), Background = (Brush)Application.Current.FindResource("WindowBrush"), UseLayoutRounding = true };
-            surface.Measure(new Size(480, double.PositiveInfinity));
-            surface.Arrange(new Rect(0, 0, 480, surface.DesiredSize.Height));
+            surface.Measure(new Size(width, double.PositiveInfinity));
+            surface.Arrange(new Rect(0, 0, width, surface.DesiredSize.Height));
             surface.UpdateLayout();
-            Assert.InRange(panel.ActualWidth, 400, 480);
+            Assert.InRange(panel.ActualWidth, width - 40, width);
             foreach (var box in Logical<TextBox>(panel)) Assert.True(box.ActualWidth > 200);
             var output = Environment.GetEnvironmentVariable("VIBEGAUGE_TEST_CAPTURE_DIR");
             if (!string.IsNullOrEmpty(output))
             {
                 Directory.CreateDirectory(output);
-                var bitmap = new RenderTargetBitmap(480, (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                var bitmap = new RenderTargetBitmap(width, (int)Math.Ceiling(surface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
                 bitmap.Render(surface);
                 var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                using var file = File.Create(Path.Combine(output, light ? "sub2api-light.png" : "sub2api-dark.png"));
+                using var file = File.Create(Path.Combine(output, $"sub2api-{(light ? "light" : "dark")}-{width}.png"));
                 encoder.Save(file);
             }
             host.SelectedIndex = 0;

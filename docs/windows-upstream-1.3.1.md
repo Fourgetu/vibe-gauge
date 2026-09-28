@@ -1,8 +1,9 @@
 # Windows port of upstream v1.3.1
 
 This document records the initial port baseline. The stable Windows release now
-includes the subsequent UI, PI-Desktop, date-selection, and sub2api work; see
-[v1.4.0 release notes](releases/v1.4.0.md). The platform boundaries below still apply.
+includes the subsequent UI, PI-Desktop, date-selection, and sub2api work, plus
+total-token displays, top-edge auto-hide, and memory optimizations; see
+[v1.5.0 release notes](releases/v1.5.0.md). The platform boundaries below still apply.
 
 Baseline: `MaxHaiCom/VibeGauge` commit `dad6b5b` (v1.3.1 plus documentation). Windows 11 x64, .NET 10, WPF. This is a Windows preview, not a claim that every macOS-specific feature is implemented.
 

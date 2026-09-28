@@ -1,14 +1,23 @@
+using System.Text.Json.Serialization;
+
 namespace VibeGauge.Core;
 
 public sealed record UsageDay(DateOnly Date, int Calls, long Context, long Output, long CacheRead,
-    long CacheWrite = 0, long Thinking = 0);
+    long CacheWrite = 0, long Thinking = 0)
+{
+    [JsonIgnore] public long TotalTokens => Context + Output;
+}
 public sealed record ModelMix(string Source, string Model, int Calls, long Context, long Output,
-    long CacheRead = 0, long CacheWrite = 0, long Thinking = 0);
+    long CacheRead = 0, long CacheWrite = 0, long Thinking = 0)
+{
+    [JsonIgnore] public long TotalTokens => Context + Output;
+}
 public sealed record UsageModelDay(DateOnly Date, ModelMix Usage);
 public sealed record UsageHour(DateOnly Date, int Hour, int Calls);
 public sealed record UsagePeriod(DateOnly Start, DateOnly End, int Calls, int ActiveDays,
     long Context, long Output, long CacheRead, long CacheWrite, long Thinking, IReadOnlyList<ModelMix> Models)
 {
+    [JsonIgnore] public long TotalTokens => Context + Output;
     public double? CacheHitRate => Context > 0 ? CacheRead * 100d / Context : null;
 }
 public sealed record UsageStatistics(
@@ -39,24 +48,49 @@ public sealed record UsageStatistics(
         timeZone ??= TimeZoneInfo.Local;
         var zone = timeZone;
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, zone).DateTime);
-        var rows = records.Where(x => x.Timestamp <= now).ToArray();
-        DateOnly Day(InteractionRecord x) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(x.Timestamp, zone).DateTime);
-        var days = rows.GroupBy(Day).Select(g => new UsageDay(g.Key, g.Count(),
-            g.Sum(x => x.ContextTokens), g.Sum(x => x.OutputTokens), g.Sum(x => x.CacheReadTokens),
-            g.Sum(x => x.CacheWriteTokens), g.Sum(x => x.ThinkingTokens)))
+        var dayTotals = new Dictionary<DateOnly, Totals>();
+        var modelTotals = new Dictionary<(DateOnly Date, string Source, string Model), Totals>();
+        var hourTotals = new Dictionary<(DateOnly Date, int Hour), int>();
+        var activity = new double[24];
+        foreach (var row in records)
+        {
+            if (row.Timestamp > now) continue;
+            var local = TimeZoneInfo.ConvertTime(row.Timestamp, zone);
+            var day = DateOnly.FromDateTime(local.DateTime);
+            if (!dayTotals.TryGetValue(day, out var daily)) dayTotals[day] = daily = new();
+            daily.Add(row);
+            var key = (day, row.Source, row.Model);
+            if (!modelTotals.TryGetValue(key, out var model)) modelTotals[key] = model = new();
+            model.Add(row);
+            var hourKey = (day, local.Hour);
+            hourTotals[hourKey] = hourTotals.GetValueOrDefault(hourKey) + 1;
+            if (now - row.Timestamp < TimeSpan.FromDays(7)) activity[local.Hour]++;
+        }
+        var days = dayTotals.Select(g => new UsageDay(g.Key, g.Value.Calls,
+            g.Value.Context, g.Value.Output, g.Value.Read, g.Value.Write, g.Value.Thinking))
             .OrderBy(x => x.Date).ToArray();
-        var dailyModels = rows.GroupBy(x => (Date: Day(x), x.Source, x.Model))
-            .Select(g => new UsageModelDay(g.Key.Date, new(g.Key.Source, g.Key.Model, g.Count(),
-                g.Sum(x => x.ContextTokens), g.Sum(x => x.OutputTokens), g.Sum(x => x.CacheReadTokens),
-                g.Sum(x => x.CacheWriteTokens), g.Sum(x => x.ThinkingTokens))))
+        var dailyModels = modelTotals.Select(g => new UsageModelDay(g.Key.Date,
+                new(g.Key.Source, g.Key.Model, g.Value.Calls, g.Value.Context, g.Value.Output,
+                    g.Value.Read, g.Value.Write, g.Value.Thinking)))
             .OrderBy(x => x.Date).ThenByDescending(x => x.Usage.Context).ToArray();
         var models = dailyModels.Where(x => x.Date == today).Select(x => x.Usage).ToArray();
-        var hours = rows.GroupBy(x => (Date: Day(x), TimeZoneInfo.ConvertTime(x.Timestamp, zone).Hour))
-            .Select(g => new UsageHour(g.Key.Date, g.Key.Hour, g.Count()))
+        var hours = hourTotals.Select(g => new UsageHour(g.Key.Date, g.Key.Hour, g.Value))
             .OrderBy(x => x.Date).ThenBy(x => x.Hour).ToArray();
-        var activity = new double[24];
-        foreach (var row in rows.Where(x => now - x.Timestamp < TimeSpan.FromDays(7)))
-            activity[TimeZoneInfo.ConvertTime(row.Timestamp, zone).Hour]++;
         return new(days, models, hours, activity, dailyModels);
+    }
+
+    private sealed class Totals
+    {
+        internal int Calls;
+        internal long Context, Output, Read, Write, Thinking;
+        internal void Add(InteractionRecord row)
+        {
+            Calls++;
+            checked
+            {
+                Context += row.ContextTokens; Output += row.OutputTokens; Read += row.CacheReadTokens;
+                Write += row.CacheWriteTokens; Thinking += row.ThinkingTokens;
+            }
+        }
     }
 }

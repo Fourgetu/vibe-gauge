@@ -44,6 +44,7 @@ public sealed class StatisticsPanel : Wpf.UserControl
     private DateOnly weekEnd = DateOnly.FromDateTime(DateTime.Today);
     private bool hourly;
     private string range = "30d";
+    private DateOnly renderedToday;
     public DateOnly? SelectedDate { get; private set; }
     public string SelectedRange => range;
     public bool IsHourly => hourly;
@@ -72,7 +73,16 @@ public sealed class StatisticsPanel : Wpf.UserControl
         HorizontalScrollBarVisibility = Wpf.ScrollBarVisibility.Disabled
     };
 
-    public void Update(UsageStatistics? value) { statistics = value ?? UsageStatistics.Empty; Render(); }
+    public void Update(UsageStatistics? value)
+    {
+        var next = value ?? UsageStatistics.Empty;
+        var unchanged = body.Children.Count > 0 && renderedToday == DateOnly.FromDateTime(DateTime.Today) &&
+            statistics.Days.SequenceEqual(next.Days) && statistics.Models.SequenceEqual(next.Models) &&
+            statistics.Hours.SequenceEqual(next.Hours) && statistics.ActivityHours.SequenceEqual(next.ActivityHours) &&
+            (statistics.DailyModels ?? []).SequenceEqual(next.DailyModels ?? []);
+        statistics = next;
+        if (!unchanged) Render();
+    }
     public void RefreshTheme() => Render();
 
     public void SelectRange(string value)
@@ -122,6 +132,7 @@ public sealed class StatisticsPanel : Wpf.UserControl
 
     private void Render()
     {
+        renderedToday = DateOnly.FromDateTime(DateTime.Today);
         body.Children.Clear();
         var buttons = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
         foreach (var (id, label) in new[] { ("today", "今日"), ("7d", "7D"), ("30d", "30D"), ("all", "全部") })
@@ -147,6 +158,11 @@ public sealed class StatisticsPanel : Wpf.UserControl
         title.Name = "StatsScopeTitle";
         scope.Children.Add(title);
         body.Children.Add(scope);
+        var total = InsightUi.Text($"总 Token {Formatting.Tokens(period.TotalTokens)}", true);
+        total.Name = "StatsTotalTokens";
+        total.FontSize = 20;
+        total.ToolTip = "总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。";
+        body.Children.Add(total);
         var interval = period.Start == period.End ? period.Start.ToString("yyyy-MM-dd") : $"{period.Start:yyyy-MM-dd} 至 {period.End:yyyy-MM-dd}";
         InsightUi.Row(body, period.Start == period.End ? $"{period.Calls:N0} 次调用" : $"{period.Calls:N0} 次调用 · {period.ActiveDays} 个活跃日",
             $"{interval}\n上下文 {Formatting.Tokens(period.Context)} · 输出 {Formatting.Tokens(period.Output)}\n缓存读取 {Formatting.Tokens(period.CacheRead)} · 思考 {Formatting.Tokens(period.Thinking)}");
@@ -211,7 +227,14 @@ public sealed class StatisticsPanel : Wpf.UserControl
                 Style = (Style)System.Windows.Application.Current.FindResource("CompactProgressStyle"),
                 BorderThickness = new Thickness(0)
             });
-            var metrics = InsightUi.Text($"{model.Calls:N0} 次 · 上下文 {Formatting.Tokens(model.Context)} · 输出 {Formatting.Tokens(model.Output)}");
+            var modelTotal = InsightUi.Text($"总 Token {Formatting.Tokens(model.TotalTokens)} · {model.Calls:N0} 次");
+            modelTotal.Name = "StatsModelTotal";
+            modelTotal.FontSize = 12;
+            modelTotal.FontWeight = FontWeights.SemiBold;
+            modelTotal.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            body.Children.Add(modelTotal);
+            var metrics = InsightUi.Text($"上下文 {Formatting.Tokens(model.Context)} · 输出 {Formatting.Tokens(model.Output)}");
+            metrics.Margin = new Thickness(0, 0, 0, 6);
             metrics.ToolTip = $"缓存读取 {Formatting.Tokens(model.CacheRead)}\n缓存写入 {Formatting.Tokens(model.CacheWrite)}\n思考 {Formatting.Tokens(model.Thinking)}";
             body.Children.Add(metrics);
         }
@@ -278,7 +301,7 @@ public sealed class StatisticsPanel : Wpf.UserControl
             var data = lookup.GetValueOrDefault(date);
             var active = date.Month == month.Month && date.Year == month.Year;
             var cell = DayButton(date, $"StatsDay{date:yyyyMMdd}", date.Day.ToString(), Heat(active ? data?.Calls ?? 0 : 0, maximum),
-                $"{date:yyyy-MM-dd}\n调用 {data?.Calls ?? 0:N0} 次\n上下文 {Formatting.Tokens(data?.Context ?? 0)}");
+                $"{date:yyyy-MM-dd}\n调用 {data?.Calls ?? 0:N0} 次\n总 Token {Formatting.Tokens(data?.TotalTokens ?? 0)}\n上下文 {Formatting.Tokens(data?.Context ?? 0)} · 输出 {Formatting.Tokens(data?.Output ?? 0)}");
             cell.Margin = new Thickness(2);
             cell.Opacity = active ? 1 : .45;
             cell.Foreground = !active || (data?.Calls ?? 0) == 0 ? Brush("TextSecondaryBrush")
@@ -329,9 +352,16 @@ public sealed class StatisticsPanel : Wpf.UserControl
 public sealed class SessionsPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel body = new();
+    private SessionSummary? previous;
+    private long previousMinute = -1;
     public SessionsPanel() => Content = body;
     public void Update(SessionSummary? summary)
     {
+        var minute = DateTimeOffset.Now.ToUnixTimeSeconds() / 60;
+        if (previousMinute == minute && previous is not null && summary is not null &&
+            previous.Active.SequenceEqual(summary.Active) && previous.Pending.SequenceEqual(summary.Pending)) return;
+        previous = summary;
+        previousMinute = minute;
         body.Children.Clear();
         if (summary is null || summary.Active.Count == 0 && summary.Pending.Count == 0) return;
         if (summary.Pending.Count > 0)

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace VibeGauge.Core;
 
 public enum ProviderDataState
@@ -72,6 +74,7 @@ public sealed record InteractionRecord(
     int Status = 0,
     int LatencyMs = 0)
 {
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
 }
 
@@ -86,6 +89,7 @@ public sealed record UsageSourceSummary(
     long ThinkingTokens,
     string Note)
 {
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
 }
 
@@ -101,6 +105,7 @@ public sealed record UsageSummary(
     string Error = "")
 {
     public static UsageSummary Empty { get; } = new(0, 0, 0, 0, 0, 0, [], [], "");
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
 }
 
@@ -115,6 +120,7 @@ public sealed record ApiProviderSummary(
     int Errors = 0,
     int AverageLatencyMs = 0)
 {
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
 }
 
@@ -128,7 +134,10 @@ public sealed record ApiModelSummary(
     long OutputTokens,
     long ThinkingTokens,
     int Errors,
-    int AverageLatencyMs);
+    int AverageLatencyMs)
+{
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
+}
 
 public sealed record ApiRecentCall(
     string Provider,
@@ -150,7 +159,10 @@ public sealed record ApiRangeSummary(
     int Errors,
     int AverageLatencyMs,
     IReadOnlyList<ApiProviderSummary> Providers,
-    IReadOnlyList<ApiModelSummary> Models);
+    IReadOnlyList<ApiModelSummary> Models)
+{
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
+}
 
 public sealed record ApiUsageSummary(
     UsageDataState State,

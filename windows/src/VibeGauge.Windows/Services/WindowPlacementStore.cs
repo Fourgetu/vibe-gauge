@@ -14,7 +14,7 @@ public sealed class WindowPlacementStore(string directory)
         {
             var value = JsonSerializer.Deserialize<WindowPlacement>(File.ReadAllText(file));
             return value is not null && double.IsFinite(value.Left) && double.IsFinite(value.Top) &&
-                value.Width is >= 520 and <= 4000 && value.Height is >= 420 and <= 4000 ? value : null;
+                value.Width is >= 420 and <= 4000 && value.Height is >= 420 and <= 4000 ? value : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }

@@ -22,12 +22,15 @@ internal static class StatisticsPanelChecks
         Assert.Null(panel.SelectedDate);
         Assert.Equal(2, panel.CurrentPeriod.Calls);
         Assert.Equal(2, Models(panel).Length);
+        Assert.Equal("总 Token " + Formatting.Tokens(360), Named<TextBlock>(panel, "StatsTotalTokens").Text);
         if (!Elements<Button>(panel).Any(x => x.Name == $"StatsDay{yesterday:yyyyMMdd}")) Click(panel, "StatsPrevious");
         Click(panel, $"StatsDay{yesterday:yyyyMMdd}");
         Assert.Equal(yesterday, panel.SelectedDate);
         Assert.False(panel.IsHourly);
         Assert.Equal("yesterday-only", Assert.Single(Models(panel)).Model);
         Assert.Equal(200, panel.CurrentPeriod.Context);
+        Assert.Equal("总 Token " + Formatting.Tokens(230), Named<TextBlock>(panel, "StatsTotalTokens").Text);
+        Assert.Equal($"总 Token {Formatting.Tokens(230)} · 1 次", Named<TextBlock>(panel, "StatsModelTotal").Text);
         Assert.Contains(yesterday.ToString("yyyy-MM-dd"), Named<TextBlock>(panel, "StatsModelTitle").Text);
 
         panel.Update(stats);
@@ -49,12 +52,14 @@ internal static class StatisticsPanelChecks
         hour.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(old, panel.SelectedDate);
         Assert.Equal(500, panel.CurrentPeriod.Context);
+        Assert.Equal("总 Token " + Formatting.Tokens(530), Named<TextBlock>(panel, "StatsTotalTokens").Text);
         Click(panel, "StatsPrevious");
         Assert.NotNull(Named<Button>(panel, $"StatsHourDay{old.AddDays(-7):yyyyMMdd}"));
         Assert.Equal(old, panel.SelectedDate);
 
         panel.SelectDate(today.AddDays(-3));
         Assert.Equal(0, panel.CurrentPeriod.Calls);
+        Assert.Equal("总 Token 0", Named<TextBlock>(panel, "StatsTotalTokens").Text);
         Assert.Empty(Models(panel));
         Assert.Contains("所选日期暂无", Named<TextBlock>(panel, "StatsEmpty").Text);
         panel.SelectDate(today.AddDays(1));
@@ -65,15 +70,32 @@ internal static class StatisticsPanelChecks
         Click(panel, "StatsRange_all");
         Assert.Equal(3, Models(panel).Length);
         Assert.Equal(800, panel.CurrentPeriod.Context);
+        Assert.Equal("总 Token " + Formatting.Tokens(890), Named<TextBlock>(panel, "StatsTotalTokens").Text);
 
         var many = UsageStatistics.Build(Enumerable.Range(0, 15).Select(i => Record(today, "model-" + i, i + 50)), DateTimeOffset.Now);
         panel.Update(many);
         Assert.Equal(15, Models(panel).Length);
         Assert.Equal(panel.CurrentPeriod.Calls, Models(panel).Sum(x => x.Calls));
+        Assert.Equal(panel.CurrentPeriod.TotalTokens, Models(panel).Sum(x => x.TotalTokens));
+        Assert.Equal(15, Elements<TextBlock>(panel).Count(x => x.Name == "StatsModelTotal"));
         Assert.Equal(100, Elements<ProgressBar>(panel).Sum(x => x.Value), 8);
-        panel.Measure(new Size(500, double.PositiveInfinity));
-        panel.Arrange(new Rect(0, 0, 500, 800));
-        panel.UpdateLayout();
+        var unchangedHeading = Named<TextBlock>(panel, "StatsTotalTokens");
+        panel.Update(many with { Days = many.Days.ToArray(), DailyModels = many.DailyModels!.ToArray() });
+        Assert.Same(unchangedHeading, Named<TextBlock>(panel, "StatsTotalTokens"));
+        panel.RefreshTheme();
+        Assert.NotSame(unchangedHeading, Named<TextBlock>(panel, "StatsTotalTokens"));
+        foreach (var width in new[] { 385, 500 })
+        {
+            panel.Measure(new Size(width, double.PositiveInfinity));
+            panel.Arrange(new Rect(0, 0, width, 800));
+            panel.UpdateLayout();
+            foreach (var button in Elements<Button>(panel).Where(x => x.Visibility == Visibility.Visible))
+            {
+                var bounds = button.TransformToAncestor(panel).TransformBounds(new Rect(button.RenderSize));
+                Assert.InRange(bounds.Left, -1, width);
+                Assert.InRange(bounds.Right, 0, width + 1);
+            }
+        }
     }
 
     private static ModelMix[] Models(StatisticsPanel panel) => Elements<TextBlock>(panel)

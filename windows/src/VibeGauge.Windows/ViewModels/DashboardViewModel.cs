@@ -25,6 +25,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private string npxText = "--";
     private string mcpText = "--";
     private string contextText = "暂无";
+    private string totalTokensText = "暂无";
     private string cacheHitText = "暂无";
     private string generatedText = "暂无";
     private string thinkingText = "暂无";
@@ -82,6 +83,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public string NpxText { get => npxText; private set => Set(ref npxText, value); }
     public string McpText { get => mcpText; private set => Set(ref mcpText, value); }
     public string ContextText { get => contextText; private set => Set(ref contextText, value); }
+    public string TotalTokensText { get => totalTokensText; private set => Set(ref totalTokensText, value); }
     public string CacheHitText { get => cacheHitText; private set => Set(ref cacheHitText, value); }
     public string GeneratedText { get => generatedText; private set => Set(ref generatedText, value); }
     public string ThinkingText { get => thinkingText; private set => Set(ref thinkingText, value); }
@@ -221,6 +223,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
         var usage = value.Usage;
         ContextText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.ContextTokens);
+        TotalTokensText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.TotalTokens);
         CacheHitText = usage.CacheHitRate is { } hit ? $"{hit:0.0}%" : "暂无";
         CacheHitPercent = usage.CacheHitRate ?? 0;
         GeneratedText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.OutputTokens);
@@ -228,7 +231,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         CallsText = usage.Turns.ToString();
 
         var profile = ActivityProfile.From(value.Statistics?.ActivityHours ?? new double[24]);
-        Platforms.ReplaceWith(value.Platforms.Select(x => PlatformRow.From(x, profile)));
+        Platforms.ReplaceWith(value.Platforms.Select(x => PlatformRow.From(x, profile)),
+            (old, next) => old.Quotas.SequenceEqual(next.Quotas) && old with { Quotas = next.Quotas } == next);
         ActiveProviderText = $"{value.Platforms.Count(x => x.IsRunning)} 个活动";
         UsageSources.ReplaceWith(usage.Sources.Select(UsageSourceRow.From));
         Recent.ReplaceWith(usage.Recent.Select(RecentRow.From));
@@ -252,10 +256,10 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         ApiRecent.ReplaceWith((api.Recent ?? []).Select(ApiRecentRow.From));
         Raise(nameof(HasApiProviders)); Raise(nameof(HasApiModels)); Raise(nameof(HasApiRecent));
         ApiHeadline = range.Calls > 0
-            ? $"{range.Label} {range.Calls} 次 · 输入 {Formatting.Tokens(range.ContextTokens)}"
+            ? $"{range.Label}总 Token {Formatting.Tokens(range.TotalTokens)} · {range.Calls} 次"
             : api.Note;
         ApiDetail = range.Calls > 0
-            ? $"输出 {Formatting.Tokens(range.OutputTokens)} · 缓存 {Formatting.Tokens(range.CacheReadTokens)} · 思考 {Formatting.Tokens(range.ThinkingTokens)} · 错误 {range.Errors}"
+            ? $"输入 {Formatting.Tokens(range.ContextTokens)} · 输出 {Formatting.Tokens(range.OutputTokens)}\n缓存 {Formatting.Tokens(range.CacheReadTokens)} · 思考 {Formatting.Tokens(range.ThinkingTokens)} · 错误 {range.Errors}"
             : "API Usage 与 CLI Usage 独立统计";
     }
 
@@ -378,14 +382,16 @@ public sealed record PlatformRow(
     }
 }
 
-public sealed record UsageSourceRow(string Name, string Metrics, string Note, string Tone)
+public sealed record UsageSourceRow(string Name, string Metrics, string Note, string Tone, string TotalText = "", bool HasUsage = false)
 {
     public static UsageSourceRow From(UsageSourceSummary value)
     {
         var metrics = value.State == UsageDataState.Available
-            ? $"上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)} · {value.Turns} 次"
+            ? $"上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}"
             : value.Note;
-        return new(value.Name, metrics, value.Note, value.State == UsageDataState.Available ? "Good" : "Muted");
+        var available = value.State == UsageDataState.Available;
+        return new(value.Name, metrics, value.Note, available ? "Good" : "Muted",
+            available ? $"总 Token {Formatting.Tokens(value.TotalTokens)} · {value.Turns} 次" : "", available);
     }
 }
 
@@ -398,7 +404,7 @@ public sealed record RecentRow(string Model, string Source, string Metrics, stri
         return new(
             Formatting.ModelDisplayName(value.Model),
             value.Source,
-            $"上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
+            $"总 Token {Formatting.Tokens(value.TotalTokens)}\n上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
             hit is { } rate ? $"{rate:0.0}% 命中" : "暂无缓存数据",
             hit ?? 0,
             RelativeTime(value.Timestamp),
@@ -419,7 +425,7 @@ public sealed record ApiProviderRow(string Name, string Calls, string Metrics, s
     public static ApiProviderRow From(ApiProviderSummary value) => new(
         value.Name,
         $"{value.Calls} 次",
-        $"输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
+        $"总 Token {Formatting.Tokens(value.TotalTokens)}\n输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
         $"缓存 {Formatting.Tokens(value.CacheReadTokens)} · 写入 {Formatting.Tokens(value.CacheWriteTokens)}",
         $"错误 {value.Errors} · 平均 {value.AverageLatencyMs} ms");
 }
@@ -430,7 +436,7 @@ public sealed record ApiModelRow(string Provider, string Model, string Calls, st
         value.Provider,
         value.Model,
         $"{value.Calls} 次",
-        $"输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · {value.AverageLatencyMs} ms");
+        $"总 Token {Formatting.Tokens(value.TotalTokens)}\n输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · {value.AverageLatencyMs} ms");
 }
 
 public sealed record ApiRecentRow(string Provider, string Model, string Time, string Tokens, string Status, string Tone)
@@ -450,9 +456,16 @@ public sealed record ApiRecentRow(string Provider, string Model, string Time, st
 
 internal static class ObservableCollectionExtensions
 {
-    internal static void ReplaceWith<T>(this ObservableCollection<T> collection, IEnumerable<T> values)
+    internal static void ReplaceWith<T>(this ObservableCollection<T> collection, IEnumerable<T> values, Func<T, T, bool>? same = null)
     {
-        collection.Clear();
-        foreach (var value in values) collection.Add(value);
+        same ??= EqualityComparer<T>.Default.Equals;
+        var index = 0;
+        foreach (var value in values)
+        {
+            if (index == collection.Count) collection.Add(value);
+            else if (!same(collection[index], value)) collection[index] = value;
+            index++;
+        }
+        while (collection.Count > index) collection.RemoveAt(collection.Count - 1);
     }
 }

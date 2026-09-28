@@ -10,6 +10,14 @@ public partial class PlansPanel : Wpf.UserControl
 {
     public PlansPanel() => InitializeComponent();
     public void Update(SessionSummary? sessions) => SessionsView.Update(sessions);
+    internal void ScrollToUsageForCapture()
+    {
+        UpdateLayout();
+        var content = (System.Windows.Media.Visual)PlansScroll.Content;
+        var point = UsageSummaryHeading.TransformToAncestor(content).Transform(new System.Windows.Point(0, 0));
+        PlansScroll.ScrollToVerticalOffset(point.Y);
+        UpdateLayout();
+    }
 }
 
 // A row shares its own height, not the height of every card in the dashboard.

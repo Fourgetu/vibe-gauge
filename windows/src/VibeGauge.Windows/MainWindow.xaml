@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:VibeGauge.Windows"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="VibeGauge" Width="540" Height="860" MinWidth="520" MinHeight="420"
+        Title="VibeGauge" Width="420" Height="860" MinWidth="420" MinHeight="420"
         WindowStyle="None" ResizeMode="CanResize" ShowInTaskbar="False"
         Topmost="True" Background="Transparent" AllowsTransparency="False"
         UseLayoutRounding="True" SnapsToDevicePixels="True" KeyDown="Window_KeyDown">
@@ -37,7 +37,7 @@
                             <RadioButton Content="系统" GroupName="Navigation" Tag="2" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsSystemSelected, Mode=OneWay}" Click="Nav_Click" />
                         </StackPanel>
                     </Border>
-                    <TextBlock Grid.Column="1" Text="{Binding HeaderMemoryText}" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="5,0,7,0" />
+                    <TextBlock x:Name="HeaderMemory" Grid.Column="1" Text="{Binding HeaderMemoryText}" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="5,0,7,0" Visibility="Collapsed" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <Button x:Name="ThemeButton" Style="{StaticResource IconButtonStyle}" ToolTip="切换为浅色毛玻璃" AutomationProperties.Name="切换为浅色毛玻璃" Click="Theme_Click"><TextBlock x:Name="ThemeIcon" Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
                         <Button Style="{StaticResource IconButtonStyle}" ToolTip="立即刷新" AutomationProperties.Name="立即刷新" Click="Refresh_Click"><TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
@@ -94,7 +94,7 @@
                         <ItemsControl ItemsSource="{Binding ApiRecent}"><ItemsControl.ItemTemplate><DataTemplate>
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,6"><StackPanel>
                                 <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding Time}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></DockPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,5,0,0"><TextBlock Text="{Binding Provider}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Tokens, StringFormat= · Token {0}}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Status, StringFormat= · {0}}" Tag="{Binding Tone}" Style="{StaticResource ToneTextStyle}" /></StackPanel>
+                                <WrapPanel Margin="0,5,0,0"><TextBlock Text="{Binding Provider}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Tokens, StringFormat= · 总 Token {0}}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Status, StringFormat= · {0}}" Tag="{Binding Tone}" Style="{StaticResource ToneTextStyle}" /></WrapPanel>
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14,0,8" /><local:UsageKeysPanel />

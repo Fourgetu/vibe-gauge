@@ -16,6 +16,8 @@ public partial class MainWindow : Window
     private readonly WindowPlacementStore placement;
     private readonly ThemeSettings themeSettings;
     private readonly ThemePalette palette;
+    private readonly TopEdgeAutoHide edgeHide;
+    private VibeGauge.Core.DashboardSnapshot? latestSnapshot;
     public bool IsLightTheme => palette.IsLight;
     public bool HasUserPosition { get; private set; }
     public bool UsesSystemBackdrop { get; private set; }
@@ -34,16 +36,32 @@ public partial class MainWindow : Window
             Left = previous.Left; Top = previous.Top; Width = previous.Width; Height = previous.Height;
             pinned = previous.Pinned; PinButton.IsChecked = pinned; HasUserPosition = true;
         }
+        SizeChanged += (_, _) => HeaderMemory.Visibility = ActualWidth >= 520 ? Visibility.Visible : Visibility.Collapsed;
+        edgeHide = new TopEdgeAutoHide(this, autoHide);
         viewModel.SnapshotChanged += (_, snapshot) =>
         {
-            StatisticsView.Update(snapshot.Statistics);
-            PlansView.Update(snapshot.Sessions);
-            NetworkView.Update(snapshot.Network);
+            latestSnapshot = snapshot;
+            UpdateSelectedPanel();
+        };
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(viewModel.IsStatsSelected) && viewModel.IsStatsSelected ||
+                e.PropertyName == nameof(viewModel.IsSubscriptionSelected) && viewModel.IsSubscriptionSelected ||
+                e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
+                UpdateSelectedPanel();
         };
         if (autoHide) Deactivated += (_, _) =>
         {
-            if (!pinned && !moving && !IsMouseOver) Hide();
+            if (!pinned && !moving && !edgeHide.IsDocked && !IsMouseOver) Hide();
         };
+    }
+
+    private void UpdateSelectedPanel()
+    {
+        if (latestSnapshot is not { } snapshot) return;
+        if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics);
+        else if (viewModel.IsSubscriptionSelected) PlansView.Update(snapshot.Sessions);
+        else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -79,11 +97,12 @@ public partial class MainWindow : Window
 
     private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (message == 0x0231) moving = true; // WM_ENTERSIZEMOVE
+        if (message == 0x0231) { moving = true; edgeHide.BeginMove(); } // WM_ENTERSIZEMOVE
         if (message == 0x0232)
         {
             moving = false;
             HasUserPosition = true;
+            edgeHide.CompleteMove();
             SavePlacement();
         }
         return IntPtr.Zero;
@@ -116,7 +135,10 @@ public partial class MainWindow : Window
         SavePlacement();
     }
 
-    private void SavePlacement() => placement.Save(new WindowPlacement(Left, Top, ActualWidth, ActualHeight, pinned));
+    private void SavePlacement() => placement.Save(new WindowPlacement(Left, edgeHide.PlacementTop, ActualWidth, ActualHeight, pinned));
+
+    internal void PrepareForTrayShow() => edgeHide.Reveal();
+    internal void OnTrayShown() { if (HasUserPosition) edgeHide.CompleteMove(); }
 
     private void Hide_Click(object sender, RoutedEventArgs e) => Hide();
 

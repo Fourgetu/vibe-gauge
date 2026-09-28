@@ -70,7 +70,8 @@ public sealed class SessionMonitor(AppPaths paths)
             changed = !SHA256.HashData(tail).SequenceEqual(state.Tail);
         }
         if (changed) state = new();
-        state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(state, line));
+        state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(state, line),
+            JsonLineReader.MaxLineBytes, IsRelevantLine);
         var end = new byte[(int)Math.Min(64, state.Offset)];
         stream.Position = state.Offset - end.Length;
         stream.ReadExactly(end);
@@ -80,6 +81,11 @@ public sealed class SessionMonitor(AppPaths paths)
         cursors[path] = state;
         return state;
     }
+
+    private static bool IsRelevantLine(ReadOnlyMemory<byte> line) =>
+        line.Span.IndexOf("token_count"u8) >= 0 || line.Span.IndexOf("compacted"u8) >= 0 ||
+        line.Span.IndexOf("turn_context"u8) >= 0 || line.Span.IndexOf("session_meta"u8) >= 0 ||
+        line.Span.IndexOf("compact_boundary"u8) >= 0;
 
     private static void Consume(Cursor state, string line)
     {

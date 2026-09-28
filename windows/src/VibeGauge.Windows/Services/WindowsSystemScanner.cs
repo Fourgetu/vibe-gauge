@@ -103,8 +103,12 @@ public sealed class WindowsSystemScanner
         try
         {
             using var searcher = new ManagementObjectSearcher("SELECT CurrentUsage FROM Win32_PageFileUsage");
+            using var results = searcher.Get();
             var megabytes = 0d;
-            foreach (ManagementObject item in searcher.Get()) megabytes += Convert.ToDouble(item["CurrentUsage"] ?? 0);
+            foreach (ManagementObject item in results)
+            {
+                using (item) megabytes += Convert.ToDouble(item["CurrentUsage"] ?? 0);
+            }
             return megabytes / 1024d;
         }
         catch { return 0; }
@@ -152,25 +156,29 @@ public sealed class WindowsSystemScanner
         {
             using var searcher = new ManagementObjectSearcher(
                 "SELECT ProcessId,ParentProcessId,Name,CommandLine,ExecutablePath,WorkingSetSize,CreationDate,SessionId FROM Win32_Process");
-            foreach (ManagementObject item in searcher.Get())
+            using var results = searcher.Get();
+            foreach (ManagementObject item in results)
             {
-                var pid = Convert.ToInt32(item["ProcessId"] ?? 0);
-                if (pid <= 0) continue;
-                DateTimeOffset? started = null;
-                var creation = item["CreationDate"] as string;
-                if (!string.IsNullOrEmpty(creation))
+                using (item)
                 {
-                    try { started = new DateTimeOffset(ManagementDateTimeConverter.ToDateTime(creation)); } catch { }
+                    var pid = Convert.ToInt32(item["ProcessId"] ?? 0);
+                    if (pid <= 0) continue;
+                    DateTimeOffset? started = null;
+                    var creation = item["CreationDate"] as string;
+                    if (!string.IsNullOrEmpty(creation))
+                    {
+                        try { started = new DateTimeOffset(ManagementDateTimeConverter.ToDateTime(creation)); } catch { }
+                    }
+                    result[pid] = new(
+                        pid,
+                        Convert.ToInt32(item["ParentProcessId"] ?? 0),
+                        item["Name"]?.ToString() ?? "",
+                        item["CommandLine"]?.ToString() ?? "",
+                        item["ExecutablePath"]?.ToString() ?? "",
+                        Convert.ToDouble(item["WorkingSetSize"] ?? 0) / 1024d / 1024,
+                        started,
+                        Convert.ToInt32(item["SessionId"] ?? -1));
                 }
-                result[pid] = new(
-                    pid,
-                    Convert.ToInt32(item["ParentProcessId"] ?? 0),
-                    item["Name"]?.ToString() ?? "",
-                    item["CommandLine"]?.ToString() ?? "",
-                    item["ExecutablePath"]?.ToString() ?? "",
-                    Convert.ToDouble(item["WorkingSetSize"] ?? 0) / 1024d / 1024,
-                    started,
-                    Convert.ToInt32(item["SessionId"] ?? -1));
             }
         }
         catch (ManagementException) { }
@@ -183,7 +191,9 @@ public sealed class WindowsSystemScanner
         try
         {
             using var searcher = new ManagementObjectSearcher("SELECT ProcessId FROM Win32_Service WHERE ProcessId <> 0");
-            foreach (ManagementObject item in searcher.Get()) result.Add(Convert.ToInt32(item["ProcessId"] ?? 0));
+            using var results = searcher.Get();
+            foreach (ManagementObject item in results)
+                using (item) result.Add(Convert.ToInt32(item["ProcessId"] ?? 0));
         }
         catch { }
         return result;
@@ -212,45 +222,60 @@ public sealed class WindowsSystemScanner
     private static IEnumerable<string> ReadScheduledTaskTokens()
     {
         var values = new List<string>();
+        object? service = null;
         try
         {
             var type = Type.GetTypeFromProgID("Schedule.Service");
             if (type is null) return values;
-            dynamic service = Activator.CreateInstance(type)!;
-            service.Connect();
-            ReadTaskFolder(service.GetFolder("\\"), values);
-            Marshal.FinalReleaseComObject(service);
+            service = Activator.CreateInstance(type)!;
+            ((dynamic)service).Connect();
+            ReadTaskFolder(((dynamic)service).GetFolder("\\"), values);
         }
         catch { }
+        finally { ReleaseCom(service); }
         return values;
     }
 
     private static void ReadTaskFolder(dynamic folder, List<string> values)
     {
+        object? tasks = null, folders = null;
         try
         {
-            foreach (dynamic task in folder.GetTasks(1))
+            tasks = folder.GetTasks(1);
+            foreach (dynamic task in (dynamic)tasks)
             {
-                foreach (dynamic action in task.Definition.Actions)
+                object? definition = null, actions = null;
+                try
                 {
-                    try
+                    definition = task.Definition;
+                    actions = ((dynamic)definition).Actions;
+                    foreach (dynamic action in (dynamic)actions)
                     {
-                        var path = action.Path as string;
-                        var args = action.Arguments as string;
-                        if (!string.IsNullOrWhiteSpace(path)) values.Add(path + " " + args);
+                        try
+                        {
+                            var path = action.Path as string;
+                            var args = action.Arguments as string;
+                            if (!string.IsNullOrWhiteSpace(path)) values.Add(path + " " + args);
+                        }
+                        catch { }
+                        finally { ReleaseCom(action); }
                     }
-                    catch { }
-                    finally { Marshal.FinalReleaseComObject(action); }
                 }
-                Marshal.FinalReleaseComObject(task);
+                finally { ReleaseCom(actions); ReleaseCom(definition); ReleaseCom(task); }
             }
-            foreach (dynamic child in folder.GetFolders(0))
+            folders = folder.GetFolders(0);
+            foreach (dynamic child in (dynamic)folders)
             {
                 ReadTaskFolder(child, values);
             }
         }
         catch { }
-        finally { Marshal.FinalReleaseComObject(folder); }
+        finally { ReleaseCom(folders); ReleaseCom(tasks); ReleaseCom(folder); }
+    }
+
+    private static void ReleaseCom(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value);
     }
 
     private static ProcessReport BuildProcessReport(
@@ -259,7 +284,8 @@ public sealed class WindowsSystemScanner
         IReadOnlySet<int> servicePids,
         IReadOnlyList<string> protectedTokens)
     {
-        var currentSession = Process.GetCurrentProcess().SessionId;
+        using var currentProcess = Process.GetCurrentProcess();
+        var currentSession = currentProcess.SessionId;
         var matched = new Dictionary<int, string>();
         foreach (var process in processes.Values)
         {

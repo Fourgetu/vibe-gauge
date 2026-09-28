@@ -33,6 +33,11 @@ public sealed class WindowPresentationTests
             var value = new WindowPlacement(-1200, 80, 540, 860, true);
             store.Save(value);
             Assert.Equal(value, store.Load());
+            var compact = value with { Width = 420 };
+            store.Save(compact);
+            Assert.Equal(compact, store.Load());
+            store.Save(value with { Width = 419 });
+            Assert.Null(store.Load());
             File.WriteAllText(Path.Combine(root, "window-placement.json"), "not json");
             Assert.Null(store.Load());
             store.Save(value with { Width = 12 });

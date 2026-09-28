@@ -17,6 +17,7 @@ public sealed class UsageScanner
     private readonly object sync = new();
     private ScannerCache cache = new();
     private bool loaded;
+    private bool cacheDirty;
 
     public UsageScanner(AppPaths paths)
     {
@@ -45,6 +46,7 @@ public sealed class UsageScanner
                     {
                         filesRead++;
                         bytesRead += read;
+                        cacheDirty = true;
                     }
                 }
                 catch
@@ -53,7 +55,7 @@ public sealed class UsageScanner
                 }
             }
 
-            SaveCache();
+            if (cacheDirty) cacheDirty = !SaveCache();
             LastDiagnostics = new(discovered.Count, filesRead, bytesRead);
             return Summarize(discovered, errors);
         }
@@ -115,7 +117,8 @@ public sealed class UsageScanner
             state.Pending = "";
         }
         bytesRead = stream.Length - state.Offset;
-        state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(line, state));
+        state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(line, state),
+            JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -130,6 +133,14 @@ public sealed class UsageScanner
         cache.Files[path] = state;
         return true;
     }
+
+    private static bool IsRelevantLine(ReadOnlyMemory<byte> line, string source) => source switch
+    {
+        "Claude" or PiDesktopUsage.SourceName => line.Span.IndexOf("\"usage\""u8) >= 0,
+        "Codex" => line.Span.IndexOf("\"token_count\""u8) >= 0 ||
+            line.Span.IndexOf("\"turn_context\""u8) >= 0 || line.Span.IndexOf("\"session_meta\""u8) >= 0,
+        _ => true
+    };
 
     private static void Consume(string line, FileState state)
     {
@@ -253,13 +264,11 @@ public sealed class UsageScanner
             }
         }
         var codexFiles = cache.Files.Where(x => x.Value.Source == "Codex" && activePaths.Contains(x.Key)).ToArray();
-        var codex = codexFiles.SelectMany(file => file.Value.Records.Select(record =>
-            record.Value with { Id = file.Key + ":" + record.Key })).ToArray();
+        var codex = codexFiles.SelectMany(file => file.Value.Records.Values).ToArray();
         var piFiles = cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName && activePaths.Contains(x.Key)).ToArray();
         var pi = PiRecords(piFiles).ToArray();
         var apiFiles = cache.Files.Where(x => x.Value.Source == "API" && activePaths.Contains(x.Key)).ToArray();
-        var api = apiFiles.SelectMany(file => file.Value.Records.Select(record =>
-            record.Value with { Id = file.Key + ":" + record.Key })).ToArray();
+        var api = apiFiles.SelectMany(file => file.Value.Records.Values).ToArray();
 
         var now = DateTimeOffset.Now;
         var todayClaude = claude.Values.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
@@ -282,7 +291,7 @@ public sealed class UsageScanner
             cliRecords.Sum(x => x.OutputTokens),
             cliRecords.Sum(x => x.ThinkingTokens),
             sourceRows,
-            cliRecords.OrderByDescending(x => x.Timestamp).Take(3).ToArray(),
+            cliRecords.OrderByDescending(x => x.Timestamp).Take(3).Select(x => QualifyRecentId(x, codexFiles)).ToArray(),
             error);
 
         api = api.Where(x => x.Timestamp <= now).ToArray();
@@ -314,13 +323,12 @@ public sealed class UsageScanner
                     x.Source["API · ".Length..],
                     x.Model,
                     x.Timestamp,
-                    x.ContextTokens + x.OutputTokens,
+                    x.TotalTokens,
                     x.Status,
                     x.LatencyMs))
                 .ToArray());
-        var archivedClaude = cache.Files.Where(x => x.Value.Source == "Claude")
-            .SelectMany(x => x.Value.Records.Values).GroupBy(x => x.Id, StringComparer.Ordinal)
-            .Select(g => g.OrderByDescending(x => x.Timestamp).First());
+        var archivedClaude = MostRecentPerId(cache.Files.Where(x => x.Value.Source == "Claude")
+            .SelectMany(x => x.Value.Records.Values));
         var archivedCodex = cache.Files.Where(x => x.Value.Source == "Codex").SelectMany(x => x.Value.Records.Values);
         var archivedPi = PiRecords(cache.Files.Where(x => x.Value.Source == PiDesktopUsage.SourceName))
             .Where(x => x.Timestamp <= now).ToArray();
@@ -330,8 +338,26 @@ public sealed class UsageScanner
     }
 
     private static IEnumerable<InteractionRecord> PiRecords(IEnumerable<KeyValuePair<string, FileState>> files) =>
-        files.SelectMany(x => x.Value.Records.Values).GroupBy(x => x.Id, StringComparer.Ordinal)
-            .Select(group => group.OrderByDescending(x => x.Timestamp).First());
+        MostRecentPerId(files.SelectMany(x => x.Value.Records.Values));
+
+    private static IEnumerable<InteractionRecord> MostRecentPerId(IEnumerable<InteractionRecord> records)
+    {
+        var latest = new Dictionary<string, InteractionRecord>(StringComparer.Ordinal);
+        foreach (var record in records)
+            if (!latest.TryGetValue(record.Id, out var old) || old.Timestamp < record.Timestamp)
+                latest[record.Id] = record;
+        return latest.Values;
+    }
+
+    private static InteractionRecord QualifyRecentId(InteractionRecord record, IReadOnlyList<KeyValuePair<string, FileState>> codexFiles)
+    {
+        if (record.Source != "Codex") return record;
+        // Only the three displayed turns need a file-qualified ID, not every historical row.
+        foreach (var file in codexFiles)
+            if (file.Value.Records.TryGetValue(record.Id, out var candidate) && ReferenceEquals(candidate, record))
+                return record with { Id = file.Key + ":" + record.Id };
+        return record;
+    }
 
     private static ApiRangeSummary BuildApiRange(string key, string label, IReadOnlyList<InteractionRecord> records)
     {
@@ -437,7 +463,7 @@ public sealed class UsageScanner
         catch { cache = new(); }
     }
 
-    private void SaveCache()
+    private bool SaveCache()
     {
         try
         {
@@ -445,8 +471,9 @@ public sealed class UsageScanner
             var temporary = cachePath + ".tmp";
             using (var output = File.Create(temporary)) JsonSerializer.Serialize(output, cache);
             File.Move(temporary, cachePath, true);
+            return true;
         }
-        catch { }
+        catch { return false; }
     }
 
     private sealed record DiscoveredFile(string Path, string Source);

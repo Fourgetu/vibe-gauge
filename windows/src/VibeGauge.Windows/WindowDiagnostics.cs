@@ -56,6 +56,20 @@ internal static class WindowDiagnostics
         var saved = new WindowPlacementStore(directory).Load();
         if (saved is null || Math.Abs(saved.Left - left) > 1)
             throw new InvalidOperationException("Window placement was not persisted");
+        if (Math.Abs(saved.Width - window.ActualWidth) > 1)
+            throw new InvalidOperationException("Compact window width was not persisted");
+        var controls = Descendants<System.Windows.Controls.Primitives.ButtonBase>(window.CaptionArea)
+            .Where(x => x.IsVisible).ToArray();
+        double previousRight = 0;
+        foreach (var control in controls)
+        {
+            var bounds = control.TransformToAncestor(window).TransformBounds(new Rect(control.RenderSize));
+            if (bounds.Left < previousRight - 1 || bounds.Right > window.ActualWidth - 5)
+                throw new InvalidOperationException("Header controls overlap or extend outside the window");
+            previousRight = bounds.Right;
+        }
+        if (window.HeaderMemory.Visibility != (window.ActualWidth >= 520 ? Visibility.Visible : Visibility.Collapsed))
+            throw new InvalidOperationException("Header memory did not adapt to the window width");
         var meters = Descendants<System.Windows.Controls.ProgressBar>(window).Where(x => x.IsVisible).ToArray();
         if (meters.Length == 0 || meters.Any(x => !double.IsFinite(x.ActualWidth) || x.ActualWidth <= 0))
             throw new InvalidOperationException("Visible quota meters did not receive a valid layout");
@@ -72,6 +86,8 @@ internal static class WindowDiagnostics
             Theme = initialTheme ? "light" : "dark",
             PositionPreserved = true,
             PlacementPersisted = true,
+            WidthPersisted = true,
+            HeaderControlsFit = true,
             VisibleMeters = meters.Length,
             Width = window.ActualWidth,
             Height = window.ActualHeight

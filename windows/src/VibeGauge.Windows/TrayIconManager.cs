@@ -53,6 +53,7 @@ public sealed class TrayIconManager : IDisposable
 
     public void ShowWindow()
     {
+        window.PrepareForTrayShow();
         var cursor = Forms.Cursor.Position;
         var area = Forms.Screen.FromPoint(cursor).WorkingArea;
         window.Show();
@@ -73,6 +74,7 @@ public sealed class TrayIconManager : IDisposable
             area.Left * scaleX + 8, area.Right * scaleX - window.ActualWidth - 8);
         window.Top = ClampToScreen(window.HasUserPosition ? window.Top : cursor.Y * scaleY - window.ActualHeight - 12,
             area.Top * scaleY + 8, area.Bottom * scaleY - window.ActualHeight - 8);
+        window.OnTrayShown();
         window.Activate();
     }
 
