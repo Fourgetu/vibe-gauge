@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: read
@@ -19,11 +28,12 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+        ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
     - name: Check tag matches app version
       run: |
         v=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
-        [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME != Info.plist v$v"; exit 1; }
+        [ "v$v" = "$RELEASE_TAG" ] || { echo "::error::tag $RELEASE_TAG != Info.plist v$v"; exit 1; }
 
     - name: Compile and Bundle App
       run: |
@@ -43,13 +53,15 @@ jobs:
     - name: Stage macOS assets in draft release
       uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
+        tag_name: ${{ env.RELEASE_TAG }}
+        name: VibeGauge ${{ env.RELEASE_TAG }}
         files: |
           VibeGauge.zip
           VibeGauge.zip.sha256
         fail_on_unmatched_files: true
         draft: true
         prerelease: false
-        body_path: docs/releases/${{ github.ref_name }}.md
+        body_path: docs/releases/${{ env.RELEASE_TAG }}.md
 
   release-windows:
     needs: release
@@ -62,6 +74,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+        ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
     - name: Set up .NET 10
       uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -76,7 +89,7 @@ jobs:
         for ($i = 0; $i -lt $nodes.Count; $i++) {
           if ($nodes[$i].Name -eq 'key' -and $nodes[$i].InnerText -eq 'CFBundleShortVersionString') { $version = $nodes[$i + 1].InnerText; break }
         }
-        if ("v$version" -ne "$env:GITHUB_REF_NAME") { throw "tag $env:GITHUB_REF_NAME != Info.plist v$version" }
+        if ("v$version" -ne "$env:RELEASE_TAG") { throw "tag $env:RELEASE_TAG != Info.plist v$version" }
 
     - name: Install NSIS
       shell: pwsh
@@ -89,6 +102,7 @@ jobs:
     - name: Add Windows files to release
       uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
+        tag_name: ${{ env.RELEASE_TAG }}
         files: |
           windows/artifacts/VibeGauge-Windows-x64-*.zip
           windows/artifacts/VibeGauge-Windows-x64-*.zip.sha256
@@ -102,4 +116,4 @@ jobs:
       shell: pwsh
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release edit "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+      run: gh release edit "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
