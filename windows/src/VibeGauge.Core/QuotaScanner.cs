@@ -12,13 +12,15 @@ public sealed class QuotaScanner(AppPaths paths)
     private PlatformStatus? ollamaCached;
     private readonly Dictionary<string, CodexFileQuota> codexFiles = new(StringComparer.OrdinalIgnoreCase);
 
-    public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null)
+    public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
+        UsageSourceSummary? zcodeTotal = null)
     {
         return
         [
             ReadClaude(processes.ClaudeSessions),
             ReadCodex(processes.CodexSessions),
             ReadGemini(processes.GeminiSessions),
+            ReadDesktopUsage(ZCodeUsage.SourceName, paths.ZCodeRoot, processes.ZCodeProcesses, usage, zcodeTotal),
             ReadPiDesktop(processes.PiDesktopProcesses, usage, piDesktopTotal),
             ReadOllama(processes.OllamaRunning)
         ];
@@ -180,15 +182,29 @@ public sealed class QuotaScanner(AppPaths paths)
     }
 
     private PlatformStatus ReadPiDesktop(int processes, UsageSummary? usage, UsageSourceSummary? total)
+        => ReadDesktopUsage(PiDesktopUsage.SourceName, paths.PiDesktopRoot, processes, usage, total);
+
+    private static PlatformStatus ReadDesktopUsage(string name, string root, int processes, UsageSummary? usage, UsageSourceSummary? total)
     {
-        var source = usage?.Sources.FirstOrDefault(x => x.Name == PiDesktopUsage.SourceName);
-        var available = total?.State == UsageDataState.Available || source?.State == UsageDataState.Available;
+        var source = usage?.Sources.FirstOrDefault(x => x.Name == name);
+        var available = total?.Turns > 0 || source?.State == UsageDataState.Available;
+        var failed = total?.State == UsageDataState.ReadFailed;
         total ??= source;
         var detail = available
-            ? $"今日 {source?.Turns ?? 0} 次 · 总 Token {Formatting.Tokens(source?.TotalTokens ?? 0)}\n今日上下文 {Formatting.Tokens(source?.ContextTokens ?? 0)} · 输出 {Formatting.Tokens(source?.OutputTokens ?? 0)}\n本地累计 {total!.Turns} 次 · 总 Token {Formatting.Tokens(total.TotalTokens)}\n累计上下文 {Formatting.Tokens(total.ContextTokens)} · 输出 {Formatting.Tokens(total.OutputTokens)}\n思考 {Formatting.Tokens(total.ThinkingTokens)} · 缓存读取 {Formatting.Tokens(total.CacheReadTokens)}"
-            : Directory.Exists(paths.PiDesktopRoot) ? "本地无今日 token 统计" : "未检测到本地会话日志";
-        return new(PiDesktopUsage.SourceName, "", processes > 0, processes,
-            available ? ProviderDataState.Available : ProviderDataState.NoQuota, detail);
+            ? $"今日 {source?.Turns ?? 0} 次 · 总 Token {Formatting.Tokens(source?.TotalTokens ?? 0)}\n今日上下文 {Formatting.Tokens(source?.ContextTokens ?? 0)} · 输出 {Formatting.Tokens(source?.OutputTokens ?? 0)}\n今日思考 {Formatting.Tokens(source?.ThinkingTokens ?? 0)} · 缓存读取 {Formatting.Tokens(source?.CacheReadTokens ?? 0)} · 写入 {Formatting.Tokens(source?.CacheWriteTokens ?? 0)}\n本地累计 {total!.Turns} 次 · 总 Token {Formatting.Tokens(total.TotalTokens)}\n累计上下文 {Formatting.Tokens(total.ContextTokens)} · 输出 {Formatting.Tokens(total.OutputTokens)}\n累计思考 {Formatting.Tokens(total.ThinkingTokens)} · 缓存读取 {Formatting.Tokens(total.CacheReadTokens)} · 写入 {Formatting.Tokens(total.CacheWriteTokens)}"
+            : Directory.Exists(root) ? "本地无今日 token 统计" : "未检测到本地会话日志";
+        if (available)
+            detail += $"\n精确总 Token：今日 {source?.TotalTokens ?? 0:N0} · 累计 {total!.TotalTokens:N0}";
+        var compact = available
+            ? $"今日 {Formatting.Tokens(source?.TotalTokens ?? 0)} · {source?.Turns ?? 0} 次\n累计 {Formatting.Tokens(total!.TotalTokens)} Token"
+            : detail;
+        if (failed)
+        {
+            detail = total!.Note + "\n" + detail;
+            compact = "读取失败 · 保留上次统计\n" + (available ? $"累计 {Formatting.Tokens(total.TotalTokens)} Token" : "暂无可用记录");
+        }
+        return new(name, "", processes > 0, processes,
+            failed ? ProviderDataState.ReadFailed : available ? ProviderDataState.Available : ProviderDataState.NoQuota, detail, CompactDetail: compact);
     }
 
     private PlatformStatus ReadOllama(bool processRunning)

@@ -294,6 +294,7 @@ public sealed class WindowsSystemScanner
             else if (IsCodex(command)) matched[process.ProcessId] = "codex";
             else if (IsGemini(command)) matched[process.ProcessId] = "gemini";
             else if (IsPiDesktop(process)) matched[process.ProcessId] = "pi-desktop";
+            else if (IsZCode(process)) matched[process.ProcessId] = "zcode";
         }
         var ollamaRunning = processes.Values.Any(process =>
             IsOllama(process.CommandLine.Length > 0 ? process.CommandLine : process.Name));
@@ -332,7 +333,8 @@ public sealed class WindowsSystemScanner
             roots.Count(x => x.Value == "gemini"),
             roots.Count(x => x.Value == "pi-desktop"),
             ollamaRunning,
-            activeMcp, activeMemory, orphans.OrderByDescending(x => x.MemoryMb).ToArray(), protectedReasons.Take(30).ToArray());
+            activeMcp, activeMemory, orphans.OrderByDescending(x => x.MemoryMb).ToArray(), protectedReasons.Take(30).ToArray(),
+            roots.Count(x => x.Value == "zcode"));
     }
 
     private static bool HasMatchedAncestor(int pid, IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlyDictionary<int, string> matched)
@@ -380,6 +382,9 @@ public sealed class WindowsSystemScanner
     public static bool IsPiDesktop(ProcessSnapshot process) =>
         Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
             .Equals("PI-Desktop.exe", StringComparison.OrdinalIgnoreCase);
+    public static bool IsZCode(ProcessSnapshot process) =>
+        Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
+            .Equals("ZCode.exe", StringComparison.OrdinalIgnoreCase);
     private static bool IsOllama(string command)
     {
         var value = command.Trim().TrimStart('"').ToLowerInvariant();

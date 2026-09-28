@@ -34,7 +34,7 @@ public sealed class DashboardCoordinator
         {
             var windows = system.Scan();
             var usageSnapshot = usage.Scan();
-            var platforms = quotas.Scan(windows.Processes, usageSnapshot.Cli, usageSnapshot.PiDesktopTotal);
+            var platforms = quotas.Scan(windows.Processes, usageSnapshot.Cli, usageSnapshot.PiDesktopTotal, usageSnapshot.ZCodeTotal);
             var sessionSnapshot = sessions.Scan(DateTimeOffset.Now);
             var adapters = network.Scan();
             return (windows, usageSnapshot, platforms, sessionSnapshot, adapters);

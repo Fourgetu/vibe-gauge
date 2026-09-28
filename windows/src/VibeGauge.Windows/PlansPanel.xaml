@@ -19,7 +19,7 @@
             </Style.Triggers>
         </Style>
         <DataTemplate x:Key="QuotaMeter">
-            <StackPanel Orientation="Horizontal" Margin="0,3,8,2" ToolTip="{Binding Tooltip}">
+            <StackPanel Orientation="Horizontal" Margin="0,3,8,2">
                 <TextBlock Text="{Binding Label}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" />
                 <ProgressBar Width="24" Height="4" Margin="5,0,5,0" VerticalAlignment="Center" Value="{Binding Percent, Mode=OneWay}" Tag="{Binding Tone}" Style="{StaticResource QuotaProgress}" />
                 <TextBlock Text="{Binding PercentText}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -39,7 +39,7 @@
                 <ItemsControl ItemsSource="{Binding Platforms}">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:ProviderCardPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate><DataTemplate>
-                        <Border Style="{StaticResource CardStyle}" Padding="10,8" ToolTip="{Binding Detail}">
+                        <Border Style="{StaticResource CardStyle}" Padding="10,8" ToolTip="{Binding FullTooltip}" ToolTipService.InitialShowDelay="350" ToolTipService.ShowDuration="60000">
                             <StackPanel>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,4">
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="5,0,0,0" />
@@ -54,7 +54,8 @@
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                     </DockPanel>
                                 </DockPanel>
-                                <Grid Visibility="{Binding HasQuota, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding CompactQuotaSummary}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding ShowCompactQuotas, Converter={StaticResource BoolToVisibility}}" />
+                                <Grid Visibility="{Binding ShowQuotaMeters, Converter={StaticResource BoolToVisibility}}">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                                     <ItemsControl ItemsSource="{Binding PrimaryQuotas}" ItemTemplate="{StaticResource QuotaMeter}">
                                         <ItemsControl.Style><Style TargetType="ItemsControl"><Setter Property="Grid.ColumnSpan" Value="2" /><Style.Triggers><DataTrigger Binding="{Binding HasSecondary}" Value="True"><Setter Property="Grid.ColumnSpan" Value="1" /></DataTrigger></Style.Triggers></Style></ItemsControl.Style>
@@ -62,12 +63,14 @@
                                     </ItemsControl>
                                     <ItemsControl Grid.Column="1" ItemsSource="{Binding SecondaryQuotas}" ItemTemplate="{StaticResource QuotaMeter}" Visibility="{Binding HasSecondary, Converter={StaticResource BoolToVisibility}}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel></ItemsControl>
                                 </Grid>
-                                <TextBlock Text="{Binding ForecastSummary}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,1" Visibility="{Binding HasForecast, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding ForecastSummary}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,1" Visibility="{Binding ShowForecast, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" /><Style.Triggers><DataTrigger Binding="{Binding ForecastWarning}" Value="True"><Setter Property="Foreground" Value="{StaticResource WarningBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                                 </TextBlock>
-                                <TextBlock Text="{Binding ResetSummary}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding HasQuota, Converter={StaticResource BoolToVisibility}}" />
-                                <TextBlock Text="{Binding TrustSummary}" Foreground="{StaticResource WarningBrush}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding HasTrustNote, Converter={StaticResource BoolToVisibility}}" />
-                                <TextBlock Text="{Binding Detail}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,5" Visibility="{Binding ShowDetail, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding ResetSummary}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding ShowReset, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding TrustSummary}" Foreground="{StaticResource WarningBrush}" FontSize="10.5" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding HasTrustNote, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding DisplayDetail}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,3,0,0" Visibility="{Binding ShowDetail, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Style.Triggers><DataTrigger Binding="{Binding IsCompact}" Value="True"><Setter Property="TextWrapping" Value="NoWrap" /><Setter Property="TextTrimming" Value="CharacterEllipsis" /><Setter Property="MaxHeight" Value="34" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
                             </StackPanel>
                         </Border>
                     </DataTemplate></ItemsControl.ItemTemplate>

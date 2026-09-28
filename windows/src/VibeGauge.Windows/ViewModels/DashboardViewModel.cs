@@ -329,8 +329,21 @@ public sealed record PlatformRow(
     bool HasQuota,
     bool HasNoQuota,
     bool IsWide,
-    bool ShowDetail = false)
+    bool ShowDetail = false,
+    bool IsCompact = false,
+    string CompactDetail = "")
 {
+    public string DisplayDetail => CompactDetail.Length > 0 ? CompactDetail : Detail;
+    public bool ShowQuotaMeters => HasQuota && Name != "Gemini";
+    public bool ShowCompactQuotas => HasQuota && Name == "Gemini";
+    public bool ShowForecast => HasForecast && !IsCompact;
+    public bool ShowReset => HasQuota && !IsCompact;
+    public string CompactQuotaSummary => string.Join("\n", Quotas.GroupBy(x => x.Secondary)
+        .Select(group => string.Join(" · ", group.Select(x => $"{x.Label} {x.PercentText}"))));
+    public string FullTooltip => string.Join("\n", new[] { string.Join(" · ",
+            new[] { Name, Tier == "未知" ? "" : Tier, SessionText }.Where(x => x.Length > 0)), Detail }
+        .Concat(Quotas.Select(x => $"{x.Label} {x.PercentText} · {x.TrustText} · {x.ResetText}" +
+            (x.ForecastText.Length > 0 ? "\n" + x.ForecastText : ""))).Where(x => x.Length > 0));
     public bool IsLocal => Tier == "Local" || Name is "Ollama" or "LM Studio" or "llama.cpp";
     public bool ShowTier => Tier is not ("未知" or "" or "未登录" or "未检测到" or "未安装") && (IsWide || Tier.Length <= 9 && Name.Length + Tier.Length <= 18);
     public double TitleMaxWidth => IsWide ? 270 : ShowTier ? 85 : 120;
@@ -348,10 +361,11 @@ public sealed record PlatformRow(
     public static PlatformRow From(PlatformStatus value, ActivityProfile? profile = null)
     {
         var runtime = value.IsRunning ? "运行中" : "未运行";
-        var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : value.Name == PiDesktopUsage.SourceName ? runtime : value.Name == "Ollama"
+        var desktop = value.Name is PiDesktopUsage.SourceName or ZCodeUsage.SourceName;
+        var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
-        var detail = value.AlwaysShowDetail || value.Name == PiDesktopUsage.SourceName ? value.Detail : value.DataState switch
+        var detail = value.AlwaysShowDetail || desktop ? value.Detail : value.DataState switch
         {
             ProviderDataState.NotSignedIn => "未登录",
             ProviderDataState.NoQuota => "未检测到额度",
@@ -360,7 +374,7 @@ public sealed record PlatformRow(
             ProviderDataState.NotRunning => "未运行",
             _ => value.Detail
         };
-        var tone = value.Name == PiDesktopUsage.SourceName ? (value.IsRunning ? "Good" : "Muted") : value.DataState switch
+        var tone = desktop ? (value.DataState == ProviderDataState.ReadFailed ? "Danger" : value.IsRunning ? "Good" : "Muted") : value.DataState switch
         {
             ProviderDataState.ReadFailed => "Danger",
             ProviderDataState.Stale => "Warning",
@@ -378,8 +392,11 @@ public sealed record PlatformRow(
         return new(
             value.Name, value.Tier.Length == 0 ? "未知" : value.Tier, runtime, session, detail, tone,
             quotas, quotas.Length > 0, quotas.Length == 0,
-            value.AlwaysShowDetail || value.Name == "Gemini" || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null,
-            quotas.Length == 0 || value.AlwaysShowDetail);
+            value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
+            quotas.Length == 0 || value.AlwaysShowDetail,
+            desktop || value.AlwaysShowDetail || value.Name == "Gemini",
+            value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
+                ? string.Join("\n", detail.Split('\n').Take(2)) : "");
     }
 }
 

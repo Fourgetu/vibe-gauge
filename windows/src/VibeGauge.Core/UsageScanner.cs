@@ -42,7 +42,8 @@ public sealed class UsageScanner
             {
                 try
                 {
-                    if (ProcessFile(item.Path, item.Source, out var read))
+                    long read = 0;
+                    if (item.Source == ZCodeUsage.SourceName ? ProcessZCode(item.Path) : ProcessFile(item.Path, item.Source, out read))
                     {
                         filesRead++;
                         bytesRead += read;
@@ -51,7 +52,9 @@ public sealed class UsageScanner
                 }
                 catch
                 {
-                    errors.Add("部分日志无法读取，保留上次结果并等待重试");
+                    errors.Add(item.Source == ZCodeUsage.SourceName
+                        ? "ZCode 数据库无法读取，保留上次结果并等待重试"
+                        : "部分日志无法读取，保留上次结果并等待重试");
                 }
             }
 
@@ -68,6 +71,7 @@ public sealed class UsageScanner
         AddFiles(result, Path.Combine(paths.CodexRoot, "sessions"), "Codex");
         AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
         AddFiles(result, paths.PiDesktopSessions, PiDesktopUsage.SourceName);
+        if (File.Exists(paths.ZCodeDatabase)) result.Add(new(paths.ZCodeDatabase, ZCodeUsage.SourceName));
         var api = paths.ResolveOwnDataFile("api-calls.jsonl");
         if (File.Exists(api)) result.Add(new(api, "API"));
         return result.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
@@ -82,6 +86,20 @@ public sealed class UsageScanner
                 .Select(path => new DiscoveredFile(path, source)));
         }
         catch { }
+    }
+
+    private bool ProcessZCode(string path)
+    {
+        var signature = ZCodeUsage.Signature(path);
+        if (!cache.Files.TryGetValue(path, out var state)) state = new FileState { Source = ZCodeUsage.SourceName };
+        if (state.Head == signature) return false;
+        // Materialize a successful read before touching retained history. Database/WAL
+        // deletion or temporary read failures must not erase already observed requests.
+        var records = ZCodeUsage.Read(path);
+        foreach (var record in records) state.Records[record.Id] = record;
+        state.Head = ZCodeUsage.Signature(path) == signature ? signature : "";
+        cache.Files[path] = state;
+        return true;
     }
 
     private bool ProcessFile(string path, string source, out long bytesRead)
@@ -276,6 +294,8 @@ public sealed class UsageScanner
         var codex = CodexRecords(codexFiles).ToArray();
         var piFiles = CachedFiles(PiDesktopUsage.SourceName);
         var pi = PiRecords(piFiles).ToArray();
+        var zcodeFiles = CachedFiles(ZCodeUsage.SourceName);
+        var zcode = MostRecentPerId(zcodeFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
         var apiFiles = CachedFiles("API");
         var api = MergeFileCopies(apiFiles).ToArray();
 
@@ -283,12 +303,14 @@ public sealed class UsageScanner
         var todayClaude = claude.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayCodex = codex.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayPi = pi.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
-        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).ToArray();
+        var todayZCode = zcode.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).Concat(todayZCode).ToArray();
         var sourceRows = new[]
         {
             SourceSummary("Claude Code", todayClaude, claudeFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary("Codex", todayCodex, codexFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary(PiDesktopUsage.SourceName, todayPi, piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无今日 token 统计"),
+            SourceSummary(ZCodeUsage.SourceName, todayZCode, zcodeFiles.Length > 0 || Directory.Exists(paths.ZCodeRoot), "本地无今日 token 统计"),
             UnsupportedSource("Gemini", Directory.Exists(paths.GeminiRoot))
         };
         var error = string.Join("；", errors);
@@ -339,7 +361,12 @@ public sealed class UsageScanner
         var archivedPi = pi.Where(x => x.Timestamp <= now).ToArray();
         var piTotal = SourceSummary(PiDesktopUsage.SourceName, archivedPi,
             piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无 token 统计");
-        return new(cli, apiSummary, UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi), now), piTotal);
+        var archivedZCode = zcode.Where(x => x.Timestamp <= now).ToArray();
+        var zcodeTotal = SourceSummary(ZCodeUsage.SourceName, archivedZCode,
+            zcodeFiles.Length > 0 || Directory.Exists(paths.ZCodeRoot), "本地无 token 统计");
+        if (errors.FirstOrDefault(x => x.StartsWith("ZCode", StringComparison.Ordinal)) is { } zcodeError)
+            zcodeTotal = zcodeTotal with { State = UsageDataState.ReadFailed, Note = zcodeError };
+        return new(cli, apiSummary, UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi).Concat(archivedZCode), now), piTotal, zcodeTotal);
     }
 
     private KeyValuePair<string, FileState>[] CachedFiles(string source) =>

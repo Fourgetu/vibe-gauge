@@ -15,7 +15,9 @@ public static class TooltipDiagnostics
     internal static async Task<object> CaptureAsync(MainWindow window, string kind, string path)
     {
         var target = Descendants<FrameworkElement>(window).FirstOrDefault(element => element.IsVisible &&
-            element.ToolTip is string text && (kind == "refresh" ? text == "立即刷新" :
+            element.ToolTip is string text && (kind.StartsWith("provider:", StringComparison.Ordinal) ?
+                element.DataContext is ViewModels.PlatformRow row && row.Name == kind["provider:".Length..] :
+                kind == "refresh" ? text == "立即刷新" :
                 text.Length > 10 && text[4] == '-' && text.Contains("\n调用 ") && !text.Contains("\n调用 0 次")))
             ?? throw new InvalidOperationException("Tooltip target was not visible: " + kind);
         var original = target.ToolTip;

@@ -21,7 +21,7 @@ public partial class PlansPanel : Wpf.UserControl
 }
 
 // A row shares its own height, not the height of every card in the dashboard.
-// Dual-pool and long-name providers span both columns, as in the upstream UI.
+// Gemini stays beside ZCode; other dual-pool and long-name providers can span both columns.
 public sealed class ProviderCardPanel : Wpf.Panel
 {
     private const double Gap = 7;

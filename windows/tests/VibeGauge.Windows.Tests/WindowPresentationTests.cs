@@ -52,7 +52,12 @@ public sealed class WindowPresentationTests
         var quota = new QuotaWindow(22, DateTimeOffset.Now.AddHours(3), DateTimeOffset.Now, TimeSpan.FromHours(5));
         var status = new PlatformStatus("Codex", "Pro", true, 1, ProviderDataState.Available, "", quota);
         Assert.False(PlatformRow.From(status).IsWide);
-        Assert.True(PlatformRow.From(status with { Name = "Gemini", SecondaryFiveHour = quota, SecondaryPoolName = "3P" }).IsWide);
+        var gemini = PlatformRow.From(status with { Name = "Gemini", SecondaryFiveHour = quota, SecondaryPoolName = "3P" });
+        Assert.False(gemini.IsWide);
+        Assert.True(gemini.ShowCompactQuotas);
+        Assert.Contains("3P 5H 22%", gemini.CompactQuotaSummary);
+        Assert.Contains("3P 5H 22%", gemini.FullTooltip);
+        Assert.False(gemini.ShowReset);
         Assert.True(PlatformRow.From(status with { Monthly = quota }).IsWide);
         var pools = PlatformRow.From(status with { SecondaryFiveHour = quota, SecondaryPoolName = "3P" });
         Assert.Single(pools.PrimaryQuotas);
@@ -66,6 +71,32 @@ public sealed class WindowPresentationTests
         Assert.False(PlatformRow.From(status).ShowTier);
         Assert.True(PlatformRow.From(status with { Tier = "Pro" }).ShowTier);
         Assert.True(PlatformRow.From(status with { Name = "Ollama", Tier = "本地" }).IsLocal);
+    }
+
+    [Fact]
+    public void CompactCardsKeepCompleteDetailsAndQuotasOnHover()
+    {
+        var detail = "可用额度 10\n今日总 Token 1234\n累计 999999\n到期 2030-01-01";
+        var quota = new QuotaWindow(20, DateTimeOffset.Now.AddDays(3), DateTimeOffset.Now, TimeSpan.FromDays(7));
+        var custom = PlatformRow.From(new("Custom", "sub2api", true, 0, ProviderDataState.Available, detail,
+            Weekly: quota, AlwaysShowDetail: true));
+        Assert.True(custom.IsWide);
+        Assert.True(custom.IsCompact);
+        Assert.Equal("可用额度 10\n今日总 Token 1234", custom.DisplayDetail);
+        Assert.Contains(detail, custom.FullTooltip);
+        Assert.Contains("W 20%", custom.FullTooltip);
+        Assert.Contains("重置", custom.FullTooltip);
+        Assert.False(custom.ShowForecast);
+        Assert.False(custom.ShowReset);
+        var zcode = PlatformRow.From(new("ZCode", "", true, 6, ProviderDataState.Available, detail,
+            CompactDetail: "今日 1234 · 2 次\n累计 999999 Token"));
+        Assert.Equal("运行中", zcode.SessionText);
+        Assert.False(zcode.IsWide);
+        Assert.True(zcode.IsCompact);
+        Assert.Contains(detail, zcode.FullTooltip);
+        var process = new ProcessSnapshot(100, 1, "ZCode.exe", "", @"C:\Program Files\ZCode\ZCode.exe", 1, null, 1);
+        Assert.True(WindowsSystemScanner.IsZCode(process));
+        Assert.False(WindowsSystemScanner.IsZCode(process with { ExecutablePath = @"C:\Other.exe" }));
     }
 
     [Fact]

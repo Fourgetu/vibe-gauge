@@ -59,6 +59,8 @@ public sealed class Sub2ApiTests
         Assert.Null(value.FiveHour);
         Assert.Null(value.Daily);
         Assert.True(value.AlwaysShowDetail);
+        Assert.Contains("今日 3,000 Token", value.CompactDetail);
+        Assert.Equal(2, value.CompactDetail.Split('\n').Length);
     }
 
     [Fact]

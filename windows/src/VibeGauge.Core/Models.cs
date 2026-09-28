@@ -59,7 +59,8 @@ public sealed record PlatformStatus(
     int? ModelCount = null,
     QuotaWindow? Monthly = null,
     QuotaWindow? Daily = null,
-    bool AlwaysShowDetail = false);
+    bool AlwaysShowDetail = false,
+    string CompactDetail = "");
 
 public sealed record InteractionRecord(
     string Id,
@@ -200,7 +201,7 @@ public sealed record ProxyRuntimeStatus(
 }
 
 public sealed record UsageScanResult(UsageSummary Cli, ApiUsageSummary Api, UsageStatistics? Statistics = null,
-    UsageSourceSummary? PiDesktopTotal = null);
+    UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null);
 
 public sealed record UsageScannerDiagnostics(int FilesDiscovered, int FilesRead, long BytesRead);
 
@@ -245,7 +246,8 @@ public sealed record ProcessReport(
     int ActiveMcpProcesses,
     double ActiveMcpMemoryMb,
     IReadOnlyList<OrphanProcess> Orphans,
-    IReadOnlyList<string> ProtectedReasons)
+    IReadOnlyList<string> ProtectedReasons,
+    int ZCodeProcesses = 0)
 {
     public static ProcessReport Empty { get; } = new(0, 0, 0, 0, false, 0, 0, [], []);
 }

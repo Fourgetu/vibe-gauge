@@ -98,8 +98,20 @@ public static class Sub2ApiParser
         else if (state == "expired") details.Add("Key 已过期");
         if (details.Count == 0 && five is null && daily is null && weekly is null && monthly is null)
             details.Add("连接成功；站点未返回余额或用量");
+        var compact = new List<string>();
+        if (details.Count > 0) compact.Add(details[0]);
+        var todayTokens = Number(Child(usage, "today"), "total_tokens");
+        var totalTokens = Number(Child(usage, "total"), "total_tokens");
+        if (todayTokens is not null || totalTokens is not null)
+        {
+            string Tokens(double value) => value is >= 0 and < long.MaxValue ? Formatting.Tokens((long)value) : value.ToString("N0", CultureInfo.InvariantCulture);
+            compact.Add(string.Join(" · ", new[] { todayTokens is { } t ? $"今日 {Tokens(t)} Token" : "",
+                totalTokens is { } all ? $"累计 {Tokens(all)} Token" : "" }.Where(x => x.Length > 0)));
+        }
+        else if (details.Count > 1) compact.Add(details[1]);
         return new(title, "sub2api", false, 0, ProviderDataState.Available,
-            string.Join("\n", details), five, weekly, Monthly: monthly, Daily: daily, AlwaysShowDetail: true);
+            string.Join("\n", details), five, weekly, Monthly: monthly, Daily: daily, AlwaysShowDetail: true,
+            CompactDetail: string.Join("\n", compact));
     }
 
     public static PlatformStatus Failure(string title, string message) =>
