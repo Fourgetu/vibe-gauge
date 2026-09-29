@@ -59,8 +59,8 @@ public partial class MainWindow : Window
     private void UpdateSelectedPanel()
     {
         if (latestSnapshot is not { } snapshot) return;
-        if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics);
-        else if (viewModel.IsSubscriptionSelected) PlansView.Update(snapshot.Sessions);
+        if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics, viewModel.SelectedTokenUnit);
+        else if (viewModel.IsSubscriptionSelected) PlansView.Update(snapshot.Sessions, viewModel.SelectedTokenUnit);
         else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network);
     }
 

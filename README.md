@@ -100,7 +100,9 @@ The native WPF tray app includes movable/resizable acrylic panels, persistent li
 
 Version **1.6.0** adds [ZCode monitoring](docs/windows-zcode.md), places Gemini and ZCode side by side, and shortens the PI-Desktop/Ollama and custom sub2api rows with complete hover details. See [v1.6.0 release notes](docs/releases/v1.6.0.md).
 
-Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.0/VibeGauge-Setup-v1.6.0.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.0/VibeGauge-Windows-x64-v1.6.0.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.0). Windows binaries are unsigned and may trigger SmartScreen.
+Version **1.6.1** adds a persistent [Token display-unit switch](docs/windows-total-tokens.md#display-unit-switch-v161) on the System page: choose Chinese 万 / 亿 or decimal K / M / B. Switching immediately reformats cached usage across the app without changing token accounting or selected statistics dates. See [v1.6.1 release notes](docs/releases/v1.6.1.md).
+
+Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.1/VibeGauge-Setup-v1.6.1.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.1/VibeGauge-Windows-x64-v1.6.1.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.1). Windows binaries are unsigned and may trigger SmartScreen.
 
 The Windows build produces a portable ZIP and a per-user installer. Both are self-contained and require neither .NET nor Python at runtime. Use `VibeGauge-Setup-*.exe` to install; `VibeGauge.exe` is the tray application, not the installer. Keep its companion `VibeGauge.Proxy.exe` beside it when using the portable build.
 

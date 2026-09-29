@@ -13,6 +13,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private readonly StartupRegistrar startup;
     private readonly ProxyManager proxy;
     private readonly ProxySettings proxySettings;
+    private readonly TokenUnitSettings tokenUnitSettings;
+    private bool internationalTokens;
     private readonly DispatcherTimer timer;
     private bool refreshing;
     private string statusText = "正在读取本地数据...";
@@ -55,6 +57,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         this.startup = startup;
         this.proxy = proxy;
         this.proxySettings = proxySettings;
+        tokenUnitSettings = new(coordinator.Paths.LocalDataRoot);
+        internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -75,6 +79,27 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
     public string StatusText { get => statusText; private set => Set(ref statusText, value); }
     public string AppVersionText => AppVersionInfo.DisplayVersion;
+    public TokenUnit SelectedTokenUnit => internationalTokens ? TokenUnit.International : TokenUnit.Chinese;
+    public string TokenUnitLabel => internationalTokens ? "K / M / B" : "万 / 亿";
+    public bool UseInternationalTokens
+    {
+        get => internationalTokens;
+        set
+        {
+            if (value == internationalTokens) return;
+            Set(ref internationalTokens, value);
+            Raise(nameof(SelectedTokenUnit));
+            Raise(nameof(TokenUnitLabel));
+            var saved = tokenUnitSettings.Save(SelectedTokenUnit);
+            if (lastSnapshot is { } snapshot)
+            {
+                Apply(snapshot);
+                SnapshotChanged?.Invoke(this, snapshot);
+            }
+            if (!saved) StatusText = "单位已切换，但设置保存失败，重启后可能恢复默认";
+        }
+    }
+    private string Tokens(long value) => Formatting.Tokens(value, SelectedTokenUnit);
     public string HeaderMemoryText { get => headerMemoryText; private set => Set(ref headerMemoryText, value); }
     public string HeaderApiText { get => headerApiText; private set => Set(ref headerApiText, value); }
     public string MemoryText { get => memoryText; private set => Set(ref memoryText, value); }
@@ -223,20 +248,20 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
             : "没有活动 MCP 进程";
 
         var usage = value.Usage;
-        ContextText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.ContextTokens);
-        TotalTokensText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.TotalTokens);
+        ContextText = usage.Turns == 0 ? "暂无" : Tokens(usage.ContextTokens);
+        TotalTokensText = usage.Turns == 0 ? "暂无" : Tokens(usage.TotalTokens);
         CacheHitText = usage.CacheHitRate is { } hit ? $"{hit:0.0}%" : "暂无";
         CacheHitPercent = usage.CacheHitRate ?? 0;
-        GeneratedText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.OutputTokens);
-        ThinkingText = usage.Turns == 0 ? "暂无" : Formatting.Tokens(usage.ThinkingTokens);
+        GeneratedText = usage.Turns == 0 ? "暂无" : Tokens(usage.OutputTokens);
+        ThinkingText = usage.Turns == 0 ? "暂无" : Tokens(usage.ThinkingTokens);
         CallsText = usage.Turns.ToString();
 
         var profile = ActivityProfile.From(value.Statistics?.ActivityHours ?? new double[24]);
-        Platforms.ReplaceWith(value.Platforms.Select(x => PlatformRow.From(x, profile)),
+        Platforms.ReplaceWith(value.Platforms.Select(x => PlatformRow.From(x, profile, SelectedTokenUnit)),
             (old, next) => old.Quotas.SequenceEqual(next.Quotas) && old with { Quotas = next.Quotas } == next);
         ActiveProviderText = $"{value.Platforms.Count(x => x.IsRunning)} 个活动";
-        UsageSources.ReplaceWith(usage.Sources.Select(UsageSourceRow.From));
-        Recent.ReplaceWith(usage.Recent.Select(RecentRow.From));
+        UsageSources.ReplaceWith(usage.Sources.Select(x => UsageSourceRow.From(x, SelectedTokenUnit)));
+        Recent.ReplaceWith(usage.Recent.Select(x => RecentRow.From(x, SelectedTokenUnit)));
         Raise(nameof(HasNoRecent));
         ApplyApi(value.Api);
         Orphans.ReplaceWith(value.Processes.Orphans);
@@ -252,15 +277,15 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
                     ?? api.Ranges?.FirstOrDefault()
                     ?? new ApiRangeSummary("today", "今日", api.Calls, api.ContextTokens, 0, 0, api.OutputTokens,
                         api.ThinkingTokens, 0, 0, api.Providers, []);
-        ApiProviders.ReplaceWith(range.Providers.Select(ApiProviderRow.From));
-        ApiModels.ReplaceWith(range.Models.Select(ApiModelRow.From));
-        ApiRecent.ReplaceWith((api.Recent ?? []).Select(ApiRecentRow.From));
+        ApiProviders.ReplaceWith(range.Providers.Select(x => ApiProviderRow.From(x, SelectedTokenUnit)));
+        ApiModels.ReplaceWith(range.Models.Select(x => ApiModelRow.From(x, SelectedTokenUnit)));
+        ApiRecent.ReplaceWith((api.Recent ?? []).Select(x => ApiRecentRow.From(x, SelectedTokenUnit)));
         Raise(nameof(HasApiProviders)); Raise(nameof(HasApiModels)); Raise(nameof(HasApiRecent));
         ApiHeadline = range.Calls > 0
-            ? $"{range.Label}总 Token {Formatting.Tokens(range.TotalTokens)} · {range.Calls} 次"
+            ? $"{range.Label}总 Token {Tokens(range.TotalTokens)} · {range.Calls} 次"
             : api.Note;
         ApiDetail = range.Calls > 0
-            ? $"输入 {Formatting.Tokens(range.ContextTokens)} · 输出 {Formatting.Tokens(range.OutputTokens)}\n缓存 {Formatting.Tokens(range.CacheReadTokens)} · 思考 {Formatting.Tokens(range.ThinkingTokens)} · 错误 {range.Errors}"
+            ? $"输入 {Tokens(range.ContextTokens)} · 输出 {Tokens(range.OutputTokens)}\n缓存 {Tokens(range.CacheReadTokens)} · 思考 {Tokens(range.ThinkingTokens)} · 错误 {range.Errors}"
             : "API Usage 与 CLI Usage 独立统计";
     }
 
@@ -358,8 +383,15 @@ public sealed record PlatformRow(
     public string ResetSummary => "重置 " + string.Join(" · ", Quotas.Select(x => x.Label + " " + x.ResetText.Replace("重置 ", "")));
     public string TrustSummary => string.Join(" · ", Quotas.Where(x => x.TrustText != "官方回报").Select(x => x.TrustText).Distinct());
     public bool HasTrustNote => TrustSummary.Length > 0;
-    public static PlatformRow From(PlatformStatus value, ActivityProfile? profile = null)
+    public static PlatformRow From(PlatformStatus value, ActivityProfile? profile = null, TokenUnit unit = TokenUnit.Chinese)
     {
+        if (value.DesktopTokens is { } desktopTokens)
+        {
+            var display = desktopTokens.Format(unit);
+            value = value with { Detail = display.Detail, CompactDetail = display.Compact };
+        }
+        else if (value.ReportedTokens is { HasValues: true } totals)
+            value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
         var runtime = value.IsRunning ? "运行中" : "未运行";
         var desktop = value.Name is PiDesktopUsage.SourceName or ZCodeUsage.SourceName;
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
@@ -402,27 +434,27 @@ public sealed record PlatformRow(
 
 public sealed record UsageSourceRow(string Name, string Metrics, string Note, string Tone, string TotalText = "", bool HasUsage = false)
 {
-    public static UsageSourceRow From(UsageSourceSummary value)
+    public static UsageSourceRow From(UsageSourceSummary value, TokenUnit unit = TokenUnit.Chinese)
     {
         var metrics = value.State == UsageDataState.Available
-            ? $"上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}"
+            ? $"上下文 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}"
             : value.Note;
         var available = value.State == UsageDataState.Available;
         return new(value.Name, metrics, value.Note, available ? "Good" : "Muted",
-            available ? $"总 Token {Formatting.Tokens(value.TotalTokens)} · {value.Turns} 次" : "", available);
+            available ? $"总 Token {Formatting.Tokens(value.TotalTokens, unit)} · {value.Turns} 次" : "", available);
     }
 }
 
 public sealed record RecentRow(string Model, string Source, string Metrics, string CacheText, double CachePercent, string Time, string Tone)
 {
-    public static RecentRow From(InteractionRecord value)
+    public static RecentRow From(InteractionRecord value, TokenUnit unit = TokenUnit.Chinese)
     {
         var hit = value.CacheHitRate;
         var tone = hit is null ? "Muted" : hit >= 80 ? "Good" : hit > 50 ? "Warning" : "Muted";
         return new(
             Formatting.ModelDisplayName(value.Model),
             value.Source,
-            $"总 Token {Formatting.Tokens(value.TotalTokens)}\n上下文 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
+            $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n上下文 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
             hit is { } rate ? $"{rate:0.0}% 命中" : "暂无缓存数据",
             hit ?? 0,
             RelativeTime(value.Timestamp),
@@ -440,33 +472,33 @@ public sealed record RecentRow(string Model, string Source, string Metrics, stri
 
 public sealed record ApiProviderRow(string Name, string Calls, string Metrics, string CacheText, string HealthText)
 {
-    public static ApiProviderRow From(ApiProviderSummary value) => new(
+    public static ApiProviderRow From(ApiProviderSummary value, TokenUnit unit = TokenUnit.Chinese) => new(
         value.Name,
         $"{value.Calls} 次",
-        $"总 Token {Formatting.Tokens(value.TotalTokens)}\n输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · 思考 {Formatting.Tokens(value.ThinkingTokens)}",
-        $"缓存 {Formatting.Tokens(value.CacheReadTokens)} · 写入 {Formatting.Tokens(value.CacheWriteTokens)}",
+        $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
+        $"缓存 {Formatting.Tokens(value.CacheReadTokens, unit)} · 写入 {Formatting.Tokens(value.CacheWriteTokens, unit)}",
         $"错误 {value.Errors} · 平均 {value.AverageLatencyMs} ms");
 }
 
 public sealed record ApiModelRow(string Provider, string Model, string Calls, string Metrics)
 {
-    public static ApiModelRow From(ApiModelSummary value) => new(
+    public static ApiModelRow From(ApiModelSummary value, TokenUnit unit = TokenUnit.Chinese) => new(
         value.Provider,
         value.Model,
         $"{value.Calls} 次",
-        $"总 Token {Formatting.Tokens(value.TotalTokens)}\n输入 {Formatting.Tokens(value.ContextTokens)} · 输出 {Formatting.Tokens(value.OutputTokens)} · {value.AverageLatencyMs} ms");
+        $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · {value.AverageLatencyMs} ms");
 }
 
 public sealed record ApiRecentRow(string Provider, string Model, string Time, string Tokens, string Status, string Tone)
 {
-    public static ApiRecentRow From(ApiRecentCall value)
+    public static ApiRecentRow From(ApiRecentCall value, TokenUnit unit = TokenUnit.Chinese)
     {
         var good = value.Status is >= 200 and < 400;
         return new(
             value.Provider,
             value.Model,
             value.Timestamp.LocalDateTime.ToString("HH:mm:ss"),
-            Formatting.Tokens(value.TotalTokens),
+            Formatting.Tokens(value.TotalTokens, unit),
             $"HTTP {value.Status} · {value.LatencyMs} ms",
             good ? "Good" : "Danger");
     }

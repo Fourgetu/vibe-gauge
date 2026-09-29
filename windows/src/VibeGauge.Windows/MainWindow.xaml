@@ -108,6 +108,13 @@
                             <TextBlock Text="系统资源" Style="{StaticResource SectionTitleStyle}" />
                             <TextBlock x:Name="SystemAppVersion" Grid.Column="1" Text="{Binding AppVersionText, StringFormat=VibeGauge {0}}" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="当前运行版本" />
                         </Grid>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="Token 显示单位" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <CheckBox x:Name="TokenUnitToggle" Grid.Column="1" Content="{Binding TokenUnitLabel}" IsChecked="{Binding UseInternationalTokens, Mode=TwoWay}" Style="{StaticResource ToggleStyle}" VerticalAlignment="Center" AutomationProperties.Name="切换 Token 显示单位" ToolTip="关闭：万 / 亿；开启：K / M / B。1K = 1,000，1M = 1,000,000，1B = 1,000,000,000 Token；不足 1K 显示原始数量。只改变显示，不改变统计。" />
+                            </Grid>
+                        </Border>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="内存" FontWeight="SemiBold" /><TextBlock Text="{Binding MemoryText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding MemoryUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="系统磁盘" FontWeight="SemiBold" /><TextBlock Text="{Binding DiskText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding DiskUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
                         <UniformGrid Columns="2" Margin="0,0,0,8">

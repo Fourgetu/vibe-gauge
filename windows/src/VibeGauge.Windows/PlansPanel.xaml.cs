@@ -9,7 +9,7 @@ namespace VibeGauge.Windows;
 public partial class PlansPanel : Wpf.UserControl
 {
     public PlansPanel() => InitializeComponent();
-    public void Update(SessionSummary? sessions) => SessionsView.Update(sessions);
+    public void Update(SessionSummary? sessions, TokenUnit unit = TokenUnit.Chinese) => SessionsView.Update(sessions, unit);
     internal void ScrollToUsageForCapture()
     {
         UpdateLayout();

@@ -32,3 +32,21 @@ reconciliation, empty/missing data, cached-record round trips, and UI labels.
 Native fixture captures accept `--capture-usage` to scroll to the daily headline
 and source summaries; use it with `--capture-ui`, an isolated `--capture-home`,
 and `--capture-output`. No real credentials are needed.
+
+## Display unit switch (v1.6.1)
+
+The System page includes **Token 显示单位** above the resource cards:
+
+- Off: the existing Chinese **万 / 亿** notation (default).
+- On: decimal **K / M / B** notation. 1K = 1,000, 1M = 1,000,000,
+  and 1B = 1,000,000,000 tokens, not bytes. Counts from 1,000 to below
+  1,000,000 use K; smaller counts retain their original integer display.
+- The choice is stored independently in `%LOCALAPPDATA%\VibeGauge\token-display.json`.
+  Switching does not overwrite theme, proxy, window-placement or usage-history files.
+- The change immediately reformats cached values without waiting for a refresh or
+  querying a provider again. Subscription cards, desktop token detail tooltips,
+  totals, recent records, session context, date/model statistics, calendar tooltips,
+  API views and custom-provider compact summaries follow the choice.
+- Exact unrounded totals and raw provider detail remain available in tooltips.
+  Statistics dates/ranges, raw numeric counts, reconciliation and memory/disk
+  MB/GB units are unchanged. Invalid or absent settings default to 万 / 亿.

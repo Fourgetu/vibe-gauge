@@ -3,9 +3,17 @@ using System.Text.RegularExpressions;
 
 namespace VibeGauge.Core;
 
+public enum TokenUnit { Chinese, International }
+
 public static partial class Formatting
 {
-    public static string Tokens(long value) => value switch
+    public static string Tokens(long value, TokenUnit unit = TokenUnit.Chinese) => unit == TokenUnit.International ? value switch
+    {
+        >= 1_000_000_000 => $"{value / 1_000_000_000m:0.##} B",
+        >= 1_000_000 => $"{value / 1_000_000m:0.##} M",
+        >= 1_000 => $"{value / 1_000m:0.###} K",
+        _ => value.ToString("N0", CultureInfo.CurrentCulture)
+    } : value switch
     {
         >= 100_000_000 => $"{value / 100_000_000d:0.00} 亿",
         >= 10_000 => $"{value / 10_000d:0.0} 万",

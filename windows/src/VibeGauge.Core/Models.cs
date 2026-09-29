@@ -60,7 +60,9 @@ public sealed record PlatformStatus(
     QuotaWindow? Monthly = null,
     QuotaWindow? Daily = null,
     bool AlwaysShowDetail = false,
-    string CompactDetail = "");
+    string CompactDetail = "",
+    DesktopTokenDisplay? DesktopTokens = null,
+    ProviderTokenTotals? ReportedTokens = null);
 
 public sealed record InteractionRecord(
     string Id,
