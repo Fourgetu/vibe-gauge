@@ -25,6 +25,7 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\AppIcon.ico" />
+    <EmbeddedResource Include="Resources\en.json" />
     <InternalsVisibleTo Include="VibeGauge.Windows.Tests" />
   </ItemGroup>
 </Project>

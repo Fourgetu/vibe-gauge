@@ -37,6 +37,9 @@ public sealed class TooltipStyleTests
                 UsagePanelChecks.Verify();
                 ProviderCardChecks.Verify();
                 TokenUnitPanelChecks.Verify();
+                ClientVisibilityPanelChecks.Verify();
+                ProviderDetailPanelChecks.Verify();
+                FeaturePanelChecks.Verify();
                 TopEdgeAutoHideChecks.Verify();
             }
             catch (Exception error) { failure = error; }
@@ -45,7 +48,7 @@ public sealed class TooltipStyleTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.IsBackground = true;
         thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(20)), "Tooltip layout test timed out");
+        Assert.True(thread.Join(TimeSpan.FromSeconds(40)), "Tooltip layout test timed out");
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
 }

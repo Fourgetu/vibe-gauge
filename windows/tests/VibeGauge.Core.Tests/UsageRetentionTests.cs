@@ -165,8 +165,11 @@ public sealed class UsageRetentionTests : IDisposable
     {
         var path = Write("Codex", [Line("Codex", 1), Line("Codex", 2)]);
         new UsageScanner(Paths).Scan();
+        var currentCache = Path.Combine(Paths.LocalDataRoot, UsageScanner.CacheFileName);
         var cachePath = Path.Combine(Paths.LocalDataRoot, "usage-incremental.json");
+        File.Move(currentCache, cachePath);
         var cache = JsonNode.Parse(File.ReadAllText(cachePath))!;
+        cache["Version"] = 1;
         var file = cache["Files"]![path]!.AsObject();
         file.Remove("SessionId");
         file.Remove("SessionIdentityRead");
@@ -174,6 +177,8 @@ public sealed class UsageRetentionTests : IDisposable
         File.Move(path, ArchivePath(path));
         Verify(new UsageScanner(Paths).Scan(), "Codex", 2, 2);
         Verify(new UsageScanner(Paths).Scan(), "Codex", 2, 2);
+        Assert.True(File.Exists(currentCache));
+        Assert.Equal(cache.ToJsonString(), File.ReadAllText(cachePath));
     }
 
     [Fact]
@@ -201,7 +206,7 @@ public sealed class UsageRetentionTests : IDisposable
         var path = Write("Codex", [Line("Codex", 1)]);
         var scanner = new UsageScanner(Paths);
         scanner.Scan();
-        var cache = Path.Combine(Paths.LocalDataRoot, "usage-incremental.json");
+        var cache = Path.Combine(Paths.LocalDataRoot, UsageScanner.CacheFileName);
         var sentinel = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(cache, sentinel);
         Verify(scanner.Scan(), "Codex", 1, 1);

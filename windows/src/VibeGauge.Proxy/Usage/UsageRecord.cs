@@ -22,6 +22,8 @@ public sealed record UsageRecord
     [JsonPropertyName("key")] public string KeyFingerprint { get; init; } = "";
     [JsonPropertyName("reached_upstream")] public bool ReachedUpstream { get; init; }
     [JsonPropertyName("error")] public string? Error { get; init; }
+    [JsonPropertyName("rl")] public IReadOnlyDictionary<string, string>? RateLimits { get; init; }
+    [JsonPropertyName("complete")] public bool Complete { get; init; }
 }
 
 public sealed class UsageAccumulator(string? requestModel)

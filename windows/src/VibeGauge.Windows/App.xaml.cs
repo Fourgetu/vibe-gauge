@@ -15,7 +15,7 @@ public partial class App : System.Windows.Application
 {
     private readonly bool startRuntime;
     public App() : this(startRuntime: true) { }
-    public App(bool startRuntime) => this.startRuntime = startRuntime;
+    public App(bool startRuntime) { this.startRuntime = startRuntime; UiLocalization.Initialize(); }
     private TrayIconManager? tray;
     private Mutex? singleInstance;
     private ProxyManager? proxy;
@@ -60,6 +60,7 @@ public partial class App : System.Windows.Application
             ? new AppPaths(captureHome["--capture-home=".Length..], Path.Combine(captureHome["--capture-home=".Length..], "local"))
             : null;
         proxy = new ProxyManager(paths);
+        UiLocalization.SetLanguage(FeaturePreferences.Load(paths ?? new AppPaths()).Language);
         var proxySettings = new ProxySettings();
         if (proxySettings.AutoStart && !captureUi) _ = await proxy.StartAsync();
         var viewModel = new DashboardViewModel(

@@ -22,9 +22,35 @@ public sealed record UsagePeriod(DateOnly Start, DateOnly End, int Calls, int Ac
 }
 public sealed record UsageStatistics(
     IReadOnlyList<UsageDay> Days, IReadOnlyList<ModelMix> Models, IReadOnlyList<UsageHour> Hours,
-    IReadOnlyList<double> ActivityHours, IReadOnlyList<UsageModelDay>? DailyModels = null)
+    IReadOnlyList<double> ActivityHours, IReadOnlyList<UsageModelDay>? DailyModels = null,
+    IReadOnlyDictionary<string, double[]>? SourceActivity = null, PriceTable? Prices = null)
 {
     public static UsageStatistics Empty { get; } = new([], [], [], new double[24], []);
+
+    public UsageStatistics WithHistory(UsageStatistics? history)
+    {
+        if (history is null || history.Days.Count == 0) return this;
+        return this with {
+            Days = Days.Concat(history.Days).GroupBy(x => x.Date).Select(g => new UsageDay(g.Key, g.Sum(x => x.Calls), g.Sum(x => x.Context),
+                g.Sum(x => x.Output), g.Sum(x => x.CacheRead), g.Sum(x => x.CacheWrite), g.Sum(x => x.Thinking))).OrderBy(x => x.Date).ToArray(),
+            DailyModels = (DailyModels ?? []).Concat(history.DailyModels ?? []).GroupBy(x => (x.Date, x.Usage.Source, x.Usage.Model))
+                .Select(g => new UsageModelDay(g.Key.Date, new(g.Key.Source, g.Key.Model, g.Sum(x => x.Usage.Calls),
+                    g.Sum(x => x.Usage.Context), g.Sum(x => x.Usage.Output), g.Sum(x => x.Usage.CacheRead), g.Sum(x => x.Usage.CacheWrite), g.Sum(x => x.Usage.Thinking))))
+                .OrderBy(x => x.Date).ThenByDescending(x => x.Usage.Context).ToArray(),
+            Hours = Hours.Concat(history.Hours).GroupBy(x => (x.Date, x.Hour)).Select(g => new UsageHour(g.Key.Date, g.Key.Hour, g.Sum(x => x.Calls)))
+                .OrderBy(x => x.Date).ThenBy(x => x.Hour).ToArray()
+        };
+    }
+
+    public ActivityProfile? ProfileFor(string provider)
+    {
+        var own = (SourceActivity ?? new Dictionary<string, double[]>()).Where(x => ProviderDetails.Matches(provider, x.Key)).ToArray();
+        var api = (SourceActivity ?? new Dictionary<string, double[]>()).Where(x => x.Key.StartsWith("API · ", StringComparison.Ordinal) &&
+            x.Key[6..].Split(" · ")[0].Equals(provider, StringComparison.OrdinalIgnoreCase)).ToArray();
+        static ActivityProfile? Merge(KeyValuePair<string, double[]>[] rows) => rows.Length == 0 ? null :
+            ActivityProfile.From(Enumerable.Range(0, 24).Select(i => rows.Sum(x => x.Value[i])).ToArray());
+        return (own.Length > 0 ? Merge(own) : Merge(api)) ?? ActivityProfile.From(ActivityHours);
+    }
 
     public UsagePeriod ForPeriod(DateOnly start, DateOnly end)
     {
@@ -43,7 +69,7 @@ public sealed record UsageStatistics(
     }
 
     public static UsageStatistics Build(IEnumerable<InteractionRecord> records, DateTimeOffset now,
-        TimeZoneInfo? timeZone = null)
+        TimeZoneInfo? timeZone = null, IEnumerable<InteractionRecord>? apiRecords = null)
     {
         timeZone ??= TimeZoneInfo.Local;
         var zone = timeZone;
@@ -52,8 +78,16 @@ public sealed record UsageStatistics(
         var modelTotals = new Dictionary<(DateOnly Date, string Source, string Model), Totals>();
         var hourTotals = new Dictionary<(DateOnly Date, int Hour), int>();
         var activity = new double[24];
+        var sourceActivity = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+        void AddActivity(InteractionRecord row)
+        {
+            if (row.Timestamp > now || now - row.Timestamp >= TimeSpan.FromDays(7)) return;
+            if (!sourceActivity.TryGetValue(row.Source, out var hours)) sourceActivity[row.Source] = hours = new double[24];
+            hours[TimeZoneInfo.ConvertTime(row.Timestamp, zone).Hour]++;
+        }
         foreach (var row in records)
         {
+            AddActivity(row);
             if (row.Timestamp > now) continue;
             var local = TimeZoneInfo.ConvertTime(row.Timestamp, zone);
             var day = DateOnly.FromDateTime(local.DateTime);
@@ -76,7 +110,8 @@ public sealed record UsageStatistics(
         var models = dailyModels.Where(x => x.Date == today).Select(x => x.Usage).ToArray();
         var hours = hourTotals.Select(g => new UsageHour(g.Key.Date, g.Key.Hour, g.Value))
             .OrderBy(x => x.Date).ThenBy(x => x.Hour).ToArray();
-        return new(days, models, hours, activity, dailyModels);
+        foreach (var row in apiRecords ?? []) AddActivity(row);
+        return new(days, models, hours, activity, dailyModels, sourceActivity);
     }
 
     private sealed class Totals

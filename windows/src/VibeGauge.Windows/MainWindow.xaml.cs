@@ -36,7 +36,8 @@ public partial class MainWindow : Window
             Left = previous.Left; Top = previous.Top; Width = previous.Width; Height = previous.Height;
             pinned = previous.Pinned; PinButton.IsChecked = pinned; HasUserPosition = true;
         }
-        SizeChanged += (_, _) => HeaderMemory.Visibility = ActualWidth >= 520 ? Visibility.Visible : Visibility.Collapsed;
+        SizeChanged += (_, _) => HeaderMemory.Visibility = ActualWidth >= 520 && viewModel.IsOverview ? Visibility.Visible : Visibility.Collapsed;
+        PlansView.ProviderSelected += name => viewModel.OpenProviderDetail(name);
         edgeHide = new TopEdgeAutoHide(this, autoHide);
         viewModel.SnapshotChanged += (_, snapshot) =>
         {
@@ -45,6 +46,11 @@ public partial class MainWindow : Window
         };
         viewModel.PropertyChanged += (_, e) =>
         {
+            if (e.PropertyName == nameof(viewModel.SelectedProviderName))
+            {
+                HeaderMemory.Visibility = ActualWidth >= 520 && viewModel.IsOverview ? Visibility.Visible : Visibility.Collapsed;
+                UpdateSelectedPanel();
+            }
             if (e.PropertyName == nameof(viewModel.IsStatsSelected) && viewModel.IsStatsSelected ||
                 e.PropertyName == nameof(viewModel.IsSubscriptionSelected) && viewModel.IsSubscriptionSelected ||
                 e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
@@ -58,10 +64,16 @@ public partial class MainWindow : Window
 
     private void UpdateSelectedPanel()
     {
-        if (latestSnapshot is not { } snapshot) return;
+        if ((viewModel.CurrentSnapshot ?? latestSnapshot) is not { } snapshot) return;
+        if (viewModel.SelectedProviderName is { } selected)
+        {
+            var provider = snapshot.Platforms.FirstOrDefault(x => x.Name == selected);
+            if (provider is not null) ProviderDetailView.Update(provider, snapshot, viewModel.Paths, viewModel.SelectedTokenUnit);
+            return;
+        }
         if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics, viewModel.SelectedTokenUnit);
-        else if (viewModel.IsSubscriptionSelected) PlansView.Update(snapshot.Sessions, viewModel.SelectedTokenUnit);
-        else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network);
+        else if (viewModel.IsSubscriptionSelected) PlansView.Update(viewModel.VisibleSessions(snapshot.Sessions), viewModel.SelectedTokenUnit);
+        else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network, snapshot.Diagnostics);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -93,6 +105,7 @@ public partial class MainWindow : Window
         ThemeButton.ToolTip = palette.IsLight ? "切换为深色毛玻璃" : "切换为浅色毛玻璃";
         System.Windows.Automation.AutomationProperties.SetName(ThemeButton, (string)ThemeButton.ToolTip);
         StatisticsView.RefreshTheme();
+        if (DataContext is DashboardViewModel { IsProviderDetailOpen: true }) UpdateSelectedPanel();
     }
 
     private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -163,20 +176,21 @@ public partial class MainWindow : Window
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;
-        Hide();
+        if (viewModel.IsProviderDetailOpen) viewModel.CloseProviderDetail(); else Hide();
         e.Handled = true;
     }
 
     private async void Clean_Click(object sender, RoutedEventArgs e)
     {
         if (viewModel.OrphanCount == 0) return;
-        var answer = System.Windows.MessageBox.Show(
+        var answer = LocalizedMessageBox.Show(
             $"将终止 {viewModel.OrphanCount} 个父进程已经退出、未监听端口且未被 Windows 服务或启动项托管的 MCP 进程。\n\n操作前会再次核对 PID、创建时间和命令指纹。",
             "清理断链 MCP", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
         var result = await viewModel.CleanAsync();
-        System.Windows.MessageBox.Show($"已终止 {result.Killed} 个进程，释放约 {result.FreedMemoryMb:0} MB；跳过 {result.Skipped} 个。", "清理完成", MessageBoxButton.OK, MessageBoxImage.Information);
+        LocalizedMessageBox.Show($"已终止 {result.Killed} 个进程，释放约 {result.FreedMemoryMb:0} MB；跳过 {result.Skipped} 个。", "清理完成", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => ExitApplication();
+    private void ProviderBack_Click(object sender, RoutedEventArgs e) => viewModel.CloseProviderDetail();
 }

@@ -20,6 +20,10 @@ public sealed class AppPaths
     public string PiDesktopSessions => Path.Combine(PiDesktopRoot, "sessions");
     public string ZCodeRoot => Path.Combine(Home, ".zcode");
     public string ZCodeDatabase => Path.Combine(ZCodeRoot, "cli", "db", "db.sqlite");
+    public string WorkBuddyRoot => Path.Combine(Home, ".workbuddy");
+    public string WorkBuddyAiRoot => Path.Combine(Home, ".workbuddy-ai");
+    public string DshRoot => Path.Combine(Home, ".dsh");
+    public string DshSessions => Path.Combine(DshRoot, "sessions");
     public string AgyQuota => Path.Combine(Home, ".cache", "agy-hud", "quota_cache.json");
 
     public string ResolveOwnDataFile(string fileName)

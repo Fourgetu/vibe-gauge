@@ -62,7 +62,9 @@ public sealed record PlatformStatus(
     bool AlwaysShowDetail = false,
     string CompactDetail = "",
     DesktopTokenDisplay? DesktopTokens = null,
-    ProviderTokenTotals? ReportedTokens = null);
+    ProviderTokenTotals? ReportedTokens = null,
+    ProviderMetadata? Metadata = null,
+    IReadOnlyList<NamedQuota>? ExtraQuotas = null);
 
 public sealed record InteractionRecord(
     string Id,
@@ -75,8 +77,14 @@ public sealed record InteractionRecord(
     long OutputTokens,
     long ThinkingTokens,
     int Status = 0,
-    int LatencyMs = 0)
+    int LatencyMs = 0,
+    bool? UsageKnown = null,
+    bool? ReachedUpstream = null,
+    IReadOnlyDictionary<string, string>? RateLimits = null,
+    bool? Completed = null)
 {
+    [JsonIgnore] public bool UnknownUsage => Status is >= 200 and < 400 && (Completed == false || UsageKnown == false || UsageKnown is null && TotalTokens == 0);
+    [JsonIgnore] public bool Failed => Status == 0 || Status >= 400 || Completed == false;
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
 }
@@ -121,7 +129,9 @@ public sealed record ApiProviderSummary(
     long OutputTokens,
     long ThinkingTokens,
     int Errors = 0,
-    int AverageLatencyMs = 0)
+    int AverageLatencyMs = 0,
+    int UnknownUsage = 0,
+    ApiQuality? Quality = null)
 {
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
@@ -137,7 +147,8 @@ public sealed record ApiModelSummary(
     long OutputTokens,
     long ThinkingTokens,
     int Errors,
-    int AverageLatencyMs)
+    int AverageLatencyMs,
+    int UnknownUsage = 0)
 {
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
 }
@@ -148,7 +159,8 @@ public sealed record ApiRecentCall(
     DateTimeOffset Timestamp,
     long TotalTokens,
     int Status,
-    int LatencyMs);
+    int LatencyMs,
+    bool UnknownUsage = false);
 
 public sealed record ApiRangeSummary(
     string Key,
@@ -162,7 +174,10 @@ public sealed record ApiRangeSummary(
     int Errors,
     int AverageLatencyMs,
     IReadOnlyList<ApiProviderSummary> Providers,
-    IReadOnlyList<ApiModelSummary> Models)
+    IReadOnlyList<ApiModelSummary> Models,
+    int UnknownUsage = 0,
+    ApiQuality? Quality = null,
+    CostEstimate? Cost = null)
 {
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
 }
@@ -176,7 +191,8 @@ public sealed record ApiUsageSummary(
     IReadOnlyList<ApiProviderSummary> Providers,
     string Note,
     IReadOnlyList<ApiRangeSummary>? Ranges = null,
-    IReadOnlyList<ApiRecentCall>? Recent = null)
+    IReadOnlyList<ApiRecentCall>? Recent = null,
+    int UnknownUsage = 0)
 {
     public static ApiUsageSummary Empty { get; } = new(UsageDataState.NotDetected, 0, 0, 0, 0, [], "未检测到 API 日志", [], []);
 }
@@ -203,7 +219,9 @@ public sealed record ProxyRuntimeStatus(
 }
 
 public sealed record UsageScanResult(UsageSummary Cli, ApiUsageSummary Api, UsageStatistics? Statistics = null,
-    UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null);
+    UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null,
+    UsageSourceSummary? WorkBuddyTotal = null, UsageSourceSummary? DshTotal = null,
+    IReadOnlyList<PlatformStatus>? Plans = null);
 
 public sealed record UsageScannerDiagnostics(int FilesDiscovered, int FilesRead, long BytesRead);
 
@@ -249,7 +267,11 @@ public sealed record ProcessReport(
     double ActiveMcpMemoryMb,
     IReadOnlyList<OrphanProcess> Orphans,
     IReadOnlyList<string> ProtectedReasons,
-    int ZCodeProcesses = 0)
+    int ZCodeProcesses = 0,
+    int WorkBuddyProcesses = 0,
+    int DshProcesses = 0,
+    IReadOnlyList<ProviderProcess>? ProviderProcesses = null,
+    IReadOnlyList<LocalRuntime>? LocalRuntimes = null)
 {
     public static ProcessReport Empty { get; } = new(0, 0, 0, 0, false, 0, 0, [], []);
 }
@@ -264,4 +286,5 @@ public sealed record DashboardSnapshot(
     ProxyRuntimeStatus? Proxy = null,
     UsageStatistics? Statistics = null,
     SessionSummary? Sessions = null,
-    IReadOnlyList<NetworkAdapterInfo>? Network = null);
+    IReadOnlyList<NetworkAdapterInfo>? Network = null,
+    NetworkDiagnosticsReport? Diagnostics = null);

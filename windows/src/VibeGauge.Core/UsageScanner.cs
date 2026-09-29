@@ -4,8 +4,9 @@ using System.Text.Json;
 
 namespace VibeGauge.Core;
 
-public sealed class UsageScanner
+public sealed partial class UsageScanner
 {
+    public const string CacheFileName = "usage-ledger-v2.json";
     private static readonly string[] TokenKeys =
     [
         "input_tokens", "cached_input_tokens", "cache_write_input_tokens",
@@ -22,10 +23,11 @@ public sealed class UsageScanner
     public UsageScanner(AppPaths paths)
     {
         this.paths = paths;
-        cachePath = Path.Combine(paths.LocalDataRoot, "usage-incremental.json");
+        cachePath = Path.Combine(paths.LocalDataRoot, CacheFileName);
     }
 
     public UsageScannerDiagnostics LastDiagnostics { get; private set; } = new(0, 0, 0);
+    public bool HistoryDurable => loaded && !cacheDirty;
 
     public UsageSummary ScanToday() => Scan().Cli;
 
@@ -43,8 +45,16 @@ public sealed class UsageScanner
                 try
                 {
                     long read = 0;
-                    if (item.Source == ZCodeUsage.SourceName ? ProcessZCode(item.Path) : ProcessFile(item.Path, item.Source, out read))
+                    var changed = item.Source switch
                     {
+                        ZCodeUsage.SourceName => ProcessZCode(item.Path),
+                        DshUsage.SourceName => ProcessDsh(item.Path),
+                        _ => ProcessFile(item.Path, item.Source, out read)
+                    };
+                    if (changed)
+                    {
+                        if (cache.Files.TryGetValue(item.Path, out var updated) && CanCompact(updated) && updated.Source != "Codex" &&
+                            updated.Records.Values.Any(MayMatchCold)) coldDirty = true;
                         filesRead++;
                         bytesRead += read;
                         cacheDirty = true;
@@ -52,12 +62,11 @@ public sealed class UsageScanner
                 }
                 catch
                 {
-                    errors.Add(item.Source == ZCodeUsage.SourceName
-                        ? "ZCode 数据库无法读取，保留上次结果并等待重试"
-                        : "部分日志无法读取，保留上次结果并等待重试");
+                    errors.Add(item.Source + " 部分记录无法读取，保留上次结果并等待重试");
                 }
             }
 
+            CompactHistory(DateTimeOffset.Now);
             if (cacheDirty) cacheDirty = !SaveCache();
             LastDiagnostics = new(discovered.Count, filesRead, bytesRead);
             return Summarize(errors);
@@ -72,6 +81,18 @@ public sealed class UsageScanner
         AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
         AddFiles(result, paths.PiDesktopSessions, PiDesktopUsage.SourceName);
         if (File.Exists(paths.ZCodeDatabase)) result.Add(new(paths.ZCodeDatabase, ZCodeUsage.SourceName));
+        AddFiles(result, Path.Combine(paths.WorkBuddyRoot, "projects"), WorkBuddyUsage.SourceName);
+        AddFiles(result, Path.Combine(paths.WorkBuddyAiRoot, "projects"), WorkBuddyUsage.SourceName);
+        if (Directory.Exists(paths.DshSessions))
+        {
+            try
+            {
+                result.AddRange(Directory.EnumerateFiles(paths.DshSessions, "session.v*.jsonl*", SearchOption.AllDirectories)
+                    .Where(x => x.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".jsonl.zstd", StringComparison.OrdinalIgnoreCase))
+                    .Select(x => new DiscoveredFile(x, DshUsage.SourceName)));
+            }
+            catch { }
+        }
         var api = paths.ResolveOwnDataFile("api-calls.jsonl");
         if (File.Exists(api)) result.Add(new(api, "API"));
         return result.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
@@ -93,6 +114,7 @@ public sealed class UsageScanner
         var signature = ZCodeUsage.Signature(path);
         if (!cache.Files.TryGetValue(path, out var state)) state = new FileState { Source = ZCodeUsage.SourceName };
         if (state.Head == signature) return false;
+        Hydrate(state);
         // Materialize a successful read before touching retained history. Database/WAL
         // deletion or temporary read failures must not erase already observed requests.
         var records = ZCodeUsage.Read(path);
@@ -125,9 +147,10 @@ public sealed class UsageScanner
         var rewritten = tailChanged || state.Source != source || state.Offset > stream.Length || stream.Length < state.Size ||
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
                         stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks ||
-                        source == "Codex" && !state.SessionIdentityRead;
+                        source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 1;
         if (rewritten)
         {
+            Hydrate(state);
             // A deleted or rewritten conversation does not undo recorded consumption.
             var retained = state.Source == source ? state : null;
             state = new FileState { Source = source, SessionId = retained?.SessionId ?? "" };
@@ -142,6 +165,7 @@ public sealed class UsageScanner
         }
         if (state.Size == stream.Length && state.LastWriteUtcTicks == info.LastWriteTimeUtc.Ticks && state.Head == head)
             return false;
+        Hydrate(state);
 
         // Migrate the old cursor, which included an incomplete tail, without losing records.
         if (state.Pending.Length > 0)
@@ -153,6 +177,7 @@ public sealed class UsageScanner
         state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(line, state),
             JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
         state.SessionIdentityRead = true;
+        if (source == "API") state.ApiMetadataVersion = 1;
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -168,9 +193,27 @@ public sealed class UsageScanner
         return true;
     }
 
+    private bool ProcessDsh(string path)
+    {
+        static string Signature(string file)
+        {
+            var info = new FileInfo(file);
+            return $"{info.Length}:{info.LastWriteTimeUtc.Ticks}:{info.CreationTimeUtc.Ticks}";
+        }
+        var signature = Signature(path);
+        if (!cache.Files.TryGetValue(path, out var state)) state = new FileState { Source = DshUsage.SourceName };
+        if (state.Head == signature) return false;
+        Hydrate(state);
+        var records = DshUsage.Read(path);
+        foreach (var record in records) state.Records[record.Id] = record;
+        state.Head = Signature(path) == signature ? signature : "";
+        cache.Files[path] = state;
+        return true;
+    }
+
     private static bool IsRelevantLine(ReadOnlyMemory<byte> line, string source) => source switch
     {
-        "Claude" or PiDesktopUsage.SourceName => line.Span.IndexOf("\"usage\""u8) >= 0,
+        "Claude" or PiDesktopUsage.SourceName or WorkBuddyUsage.SourceName => line.Span.IndexOf("\"usage\""u8) >= 0,
         "Codex" => line.Span.IndexOf("\"token_count\""u8) >= 0 ||
             line.Span.IndexOf("\"turn_context\""u8) >= 0 || line.Span.IndexOf("\"session_meta\""u8) >= 0,
         _ => true
@@ -192,6 +235,10 @@ public sealed class UsageScanner
             else if (state.Source == PiDesktopUsage.SourceName)
             {
                 if (PiDesktopUsage.Parse(document.RootElement) is { } record) state.Records[record.Id] = record;
+            }
+            else if (state.Source == WorkBuddyUsage.SourceName)
+            {
+                if (WorkBuddyUsage.Parse(document.RootElement) is { } record) state.Records[record.Id] = record;
             }
             else ConsumeApi(document.RootElement, state);
         }
@@ -282,7 +329,12 @@ public sealed class UsageScanner
             id, "API · " + provider, model.Length == 0 ? "?" : model, timestamp.Value,
             NonNegative(root, "ctx"), NonNegative(root, "cache_read"), NonNegative(root, "cache_write"),
             NonNegative(root, "out"), NonNegative(root, "think"),
-            (int)NonNegative(root, "status"), (int)NonNegative(root, "ms")));
+            (int)NonNegative(root, "status"), (int)NonNegative(root, "ms"),
+            root.TryGetProperty("parsed", out var parsed) && parsed.ValueKind is JsonValueKind.True or JsonValueKind.False ? parsed.GetBoolean() : null,
+            root.TryGetProperty("reached_upstream", out var sent) && sent.ValueKind is JsonValueKind.True or JsonValueKind.False ? sent.GetBoolean() : null,
+            root.TryGetProperty("rl", out var rl) && rl.ValueKind == JsonValueKind.Object ? ApiQuality.SafeHeaders(rl.EnumerateObject()
+                .Where(x => x.Value.ValueKind == JsonValueKind.String).Select(x => new KeyValuePair<string, string>(x.Name, x.Value.GetString()!))) : null,
+            root.TryGetProperty("complete", out var complete) && complete.ValueKind is JsonValueKind.True or JsonValueKind.False ? complete.GetBoolean() : null));
     }
 
     private UsageScanResult Summarize(IReadOnlyCollection<string> errors)
@@ -296,6 +348,10 @@ public sealed class UsageScanner
         var pi = PiRecords(piFiles).ToArray();
         var zcodeFiles = CachedFiles(ZCodeUsage.SourceName);
         var zcode = MostRecentPerId(zcodeFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var buddyFiles = CachedFiles(WorkBuddyUsage.SourceName);
+        var buddy = MostRecentPerId(buddyFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var dshFiles = CachedFiles(DshUsage.SourceName);
+        var dsh = MostRecentPerId(dshFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
         var apiFiles = CachedFiles("API");
         var api = MergeFileCopies(apiFiles).ToArray();
 
@@ -304,13 +360,19 @@ public sealed class UsageScanner
         var todayCodex = codex.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayPi = pi.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayZCode = zcode.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
-        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).Concat(todayZCode).ToArray();
+        var todayBuddy = buddy.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var todayDsh = dsh.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var buddyDetected = buddyFiles.Length > 0 || Directory.Exists(paths.WorkBuddyRoot) || Directory.Exists(paths.WorkBuddyAiRoot);
+        var dshDetected = dshFiles.Length > 0 || Directory.Exists(paths.DshRoot);
+        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).ToArray();
         var sourceRows = new[]
         {
             SourceSummary("Claude Code", todayClaude, claudeFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary("Codex", todayCodex, codexFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary(PiDesktopUsage.SourceName, todayPi, piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无今日 token 统计"),
             SourceSummary(ZCodeUsage.SourceName, todayZCode, zcodeFiles.Length > 0 || Directory.Exists(paths.ZCodeRoot), "本地无今日 token 统计"),
+            SourceSummary(WorkBuddyUsage.SourceName, todayBuddy, buddyDetected, "本地无今日 token 统计"),
+            SourceSummary(DshUsage.SourceName, todayDsh, dshDetected, "本地无今日 token 统计"),
             UnsupportedSource("Gemini", Directory.Exists(paths.GeminiRoot))
         };
         var error = string.Join("；", errors);
@@ -327,15 +389,17 @@ public sealed class UsageScanner
 
         api = api.Where(x => x.Timestamp <= now).ToArray();
         var todayApi = api.Where(x => x.Timestamp >= start).ToArray();
+        var prices = PriceTable.Load(paths);
         var ranges = new[]
         {
             BuildApiRange("today", "今日", todayApi),
             BuildApiRange("7d", "7D", api.Where(x => x.Timestamp >= DateTimeOffset.Now.AddDays(-7)).ToArray()),
             BuildApiRange("30d", "30D", api.Where(x => x.Timestamp >= DateTimeOffset.Now.AddDays(-30)).ToArray()),
             BuildApiRange("all", "All", api)
-        };
+        }.Select(r => r with { Cost = prices.Estimate(r.Models.Select(m => new ModelMix(m.Provider, m.Model, m.Calls,
+            m.ContextTokens, m.OutputTokens, m.CacheReadTokens, m.CacheWriteTokens, m.ThinkingTokens)), r.UnknownUsage) }).ToArray();
         var providerRows = ranges[0].Providers;
-        var apiState = errors.Count > 0 && apiFiles.Length > 0 ? UsageDataState.ReadFailed :
+        var apiState = errors.Any(x => x.StartsWith("API ", StringComparison.Ordinal)) && apiFiles.Length > 0 ? UsageDataState.ReadFailed :
             apiFiles.Length == 0 ? UsageDataState.NotDetected :
             todayApi.Length == 0 ? UsageDataState.NoLocalStats : UsageDataState.Available;
         var apiSummary = new ApiUsageSummary(
@@ -343,7 +407,7 @@ public sealed class UsageScanner
             todayApi.Sum(x => x.ThinkingTokens), providerRows,
             apiState switch
             {
-                UsageDataState.Available => "来自本地 API 调用日志",
+                UsageDataState.Available => todayApi.Any(x => x.UnknownUsage) ? $"已记录用量；另有 {todayApi.Count(x => x.UnknownUsage)} 次成功调用用量未知" : "来自本地 API 调用日志",
                 UsageDataState.NoLocalStats => "今日暂无 API 调用",
                 UsageDataState.ReadFailed => "部分 API 日志读取失败",
                 _ => "未检测到 API 日志"
@@ -356,8 +420,8 @@ public sealed class UsageScanner
                     x.Timestamp,
                     x.TotalTokens,
                     x.Status,
-                    x.LatencyMs))
-                .ToArray());
+                    x.LatencyMs, x.UnknownUsage))
+                .ToArray(), todayApi.Count(x => x.UnknownUsage));
         var archivedPi = pi.Where(x => x.Timestamp <= now).ToArray();
         var piTotal = SourceSummary(PiDesktopUsage.SourceName, archivedPi,
             piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无 token 统计");
@@ -366,7 +430,17 @@ public sealed class UsageScanner
             zcodeFiles.Length > 0 || Directory.Exists(paths.ZCodeRoot), "本地无 token 统计");
         if (errors.FirstOrDefault(x => x.StartsWith("ZCode", StringComparison.Ordinal)) is { } zcodeError)
             zcodeTotal = zcodeTotal with { State = UsageDataState.ReadFailed, Note = zcodeError };
-        return new(cli, apiSummary, UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi).Concat(archivedZCode), now), piTotal, zcodeTotal);
+        var archivedBuddy = buddy.Where(x => x.Timestamp <= now).ToArray();
+        var archivedDsh = dsh.Where(x => x.Timestamp <= now).ToArray();
+        var buddyTotal = SourceSummary(WorkBuddyUsage.SourceName, archivedBuddy, buddyDetected, "本地无 token 统计");
+        var dshTotal = SourceSummary(DshUsage.SourceName, archivedDsh, dshDetected, "本地无 token 统计");
+        if (errors.FirstOrDefault(x => x.StartsWith(WorkBuddyUsage.SourceName + " ", StringComparison.Ordinal)) is { } buddyError)
+            buddyTotal = buddyTotal with { State = UsageDataState.ReadFailed, Note = buddyError };
+        if (errors.FirstOrDefault(x => x.StartsWith(DshUsage.SourceName + " ", StringComparison.Ordinal)) is { } dshError)
+            dshTotal = dshTotal with { State = UsageDataState.ReadFailed, Note = dshError };
+        var statistics = UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh), now, apiRecords: api);
+        return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
+            WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now));
     }
 
     private KeyValuePair<string, FileState>[] CachedFiles(string source) =>
@@ -384,8 +458,21 @@ public sealed class UsageScanner
             var key = UsageFingerprint(UsageIdentity.From(record));
             if (state.ReplayRemaining.TryGetValue(key, out var count))
             {
+                if (state.Source == "API")
+                {
+                    state.ReplayMetadata ??= state.Records.Values.GroupBy(x => UsageFingerprint(UsageIdentity.From(x)))
+                        .ToDictionary(g => g.Key, g => new Queue<string>(g.Select(x => x.Id).Skip(Math.Max(0, g.Count() - state.ReplayRemaining.GetValueOrDefault(g.Key)))));
+                    if (state.ReplayMetadata.TryGetValue(key, out var ids) && ids.TryDequeue(out var existingId))
+                    {
+                        var existing = state.Records[existingId];
+                        state.Records[existingId] = record with { Id = existingId, UsageKnown = record.UsageKnown ?? existing.UsageKnown,
+                            ReachedUpstream = record.ReachedUpstream ?? existing.ReachedUpstream, Completed = record.Completed ?? existing.Completed,
+                            RateLimits = record.RateLimits is { Count: > 0 } ? record.RateLimits : existing.RateLimits };
+                    }
+                }
                 if (count <= 1) state.ReplayRemaining.Remove(key);
                 else state.ReplayRemaining[key] = count - 1;
+                if (state.ReplayRemaining.Count == 0) state.ReplayMetadata = null;
                 return;
             }
         }
@@ -479,8 +566,8 @@ public sealed class UsageScanner
                 group.Sum(x => x.CacheWriteTokens),
                 group.Sum(x => x.OutputTokens),
                 group.Sum(x => x.ThinkingTokens),
-                group.Count(x => x.Status >= 400 || x.Status == 0),
-                group.Count() == 0 ? 0 : (int)Math.Round(group.Average(x => x.LatencyMs))))
+                group.Count(x => x.Failed),
+                group.Count() == 0 ? 0 : (int)Math.Round(group.Average(x => x.LatencyMs)), group.Count(x => x.UnknownUsage), ApiQuality.Build(group)))
             .OrderByDescending(x => x.Calls)
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -496,8 +583,8 @@ public sealed class UsageScanner
                 group.Sum(x => x.CacheWriteTokens),
                 group.Sum(x => x.OutputTokens),
                 group.Sum(x => x.ThinkingTokens),
-                group.Count(x => x.Status >= 400 || x.Status == 0),
-                group.Count() == 0 ? 0 : (int)Math.Round(group.Average(x => x.LatencyMs))))
+                group.Count(x => x.Failed),
+                group.Count() == 0 ? 0 : (int)Math.Round(group.Average(x => x.LatencyMs)), group.Count(x => x.UnknownUsage)))
             .OrderByDescending(x => x.Calls)
             .ThenBy(x => x.Provider, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Model, StringComparer.OrdinalIgnoreCase)
@@ -511,10 +598,10 @@ public sealed class UsageScanner
             records.Sum(x => x.CacheWriteTokens),
             records.Sum(x => x.OutputTokens),
             records.Sum(x => x.ThinkingTokens),
-            records.Count(x => x.Status >= 400 || x.Status == 0),
+            records.Count(x => x.Failed),
             records.Count == 0 ? 0 : (int)Math.Round(records.Average(x => x.LatencyMs)),
             providers,
-            models);
+            models, records.Count(x => x.UnknownUsage), ApiQuality.Build(records));
     }
 
     private static UsageSourceSummary SourceSummary(string name, InteractionRecord[] records, bool detected, string emptyNote)
@@ -562,14 +649,18 @@ public sealed class UsageScanner
         loaded = true;
         try
         {
-            if (File.Exists(cachePath))
+            var inputPath = File.Exists(cachePath) ? cachePath : Path.Combine(paths.LocalDataRoot, "usage-incremental.json");
+            if (File.Exists(inputPath))
             {
-                using var input = File.OpenRead(cachePath);
+                using var input = File.OpenRead(inputPath);
                 cache = JsonSerializer.Deserialize<ScannerCache>(input) ?? new();
+                if (cache.Version is not (1 or ScannerCache.CurrentVersion)) throw new InvalidDataException("Unsupported usage ledger version");
+                cacheDirty = inputPath != cachePath || cache.Version != ScannerCache.CurrentVersion;
+                cache.Version = ScannerCache.CurrentVersion;
             }
-            if (cache.Version != ScannerCache.CurrentVersion) cache = new();
         }
-        catch { cache = new(); }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        { loaded = false; throw new IOException("历史账本读取失败；为保护已留存用量，未重建或覆盖账本。", e); }
     }
 
     private bool SaveCache()
@@ -589,9 +680,13 @@ public sealed class UsageScanner
 
     private sealed class ScannerCache
     {
-        public const int CurrentVersion = 1;
+        public const int CurrentVersion = 2;
         public int Version { get; set; } = CurrentVersion;
         public Dictionary<string, FileState> Files { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public UsageStatistics? ColdStatistics { get; set; }
+        public Dictionary<string, UsageSourceSummary> ColdTotals { get; set; } = [];
+        public string ColdTimeZone { get; set; } = "";
+        public byte[] ColdBloom { get; set; } = [];
     }
 
     private sealed class FileState
@@ -600,6 +695,8 @@ public sealed class UsageScanner
         public string Model { get; set; } = "?";
         public string SessionId { get; set; } = "";
         public bool SessionIdentityRead { get; set; }
+        public int ApiMetadataVersion { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore] public Dictionary<string, Queue<string>>? ReplayMetadata { get; set; }
         public long Size { get; set; }
         public long LastWriteUtcTicks { get; set; }
         public long Offset { get; set; }
@@ -612,6 +709,7 @@ public sealed class UsageScanner
         public Dictionary<string, long>? PreviousTotal { get; set; }
         public Dictionary<string, int> ReplayRemaining { get; set; } = new(StringComparer.Ordinal);
         public Dictionary<string, InteractionRecord> Records { get; set; } = new(StringComparer.Ordinal);
+        public string PackedRecords { get; set; } = "";
     }
 
     private sealed class ProviderModelComparer : IEqualityComparer<(string Provider, string Model)>

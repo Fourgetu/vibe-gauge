@@ -75,7 +75,7 @@ public sealed class ZCodeUsageTests : IDisposable
         Assert.Contains(result.Statistics.Models, x => x.Source == "ZCode");
         Assert.Equal(0, result.Api.Calls);
         var cards = new QuotaScanner(Paths).Scan(ProcessReport.Empty with { ZCodeProcesses = 1 }, result.Cli, result.PiDesktopTotal, result.ZCodeTotal);
-        Assert.Equal(new[] { "Claude", "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama" }, cards.Select(x => x.Name));
+        Assert.Equal(new[] { "Claude", "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop" }, cards.Select(x => x.Name));
         var card = cards.Single(x => x.Name == "ZCode");
         Assert.True(card.IsRunning);
         Assert.Contains("今日 1 次", card.Detail);

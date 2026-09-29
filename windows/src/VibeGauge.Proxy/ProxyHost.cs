@@ -106,15 +106,19 @@ public sealed class ProxyHost : IAsyncDisposable
         var stream = request.Stream;
         var failed = false;
         var reachedUpstream = false;
+        var complete = false;
+        IReadOnlyDictionary<string, string>? rateLimits = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeout.CancelAfter(options.UpstreamTimeout);
         try
         {
             await upstream.ValidateAsync(request.Upstream, timeout.Token);
             using var upstreamRequest = CreateUpstreamRequest(context.Request, request);
+            if (upstreamRequest.Content is { } body) upstreamRequest.Content = SentContent.Create(body, () => reachedUpstream = true);
             using var response = await upstream.SendAsync(upstreamRequest, timeout.Token);
             reachedUpstream = true;
             status = (int)response.StatusCode;
+            rateLimits = VibeGauge.Core.ApiQuality.SafeHeaders(response.Headers.Select(x => new KeyValuePair<string, string>(x.Key, string.Join(", ", x.Value))));
             var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
             var ndjson = contentType.Contains("ndjson", StringComparison.OrdinalIgnoreCase);
             stream = stream || ndjson || contentType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase);
@@ -143,6 +147,7 @@ public sealed class ProxyHost : IAsyncDisposable
                 else if (response.Content.Headers.ContentEncoding.Count > 0) usage.Error = "unsupported_content_encoding";
                 else UsageParser.Apply(captured.GetBuffer().AsSpan(0, (int)captured.Length), usage);
             }
+            complete = true;
             failed = status >= 400;
         }
         catch (HostValidationException)
@@ -193,10 +198,26 @@ public sealed class ProxyHost : IAsyncDisposable
                 Parsed = usage.Parsed,
                 ReachedUpstream = reachedUpstream,
                 KeyFingerprint = AccountFingerprint(context.Request),
-                Error = usage.Error
+                Error = usage.Error,
+                RateLimits = rateLimits,
+                Complete = complete
             };
             try { await logWriter.AppendAsync(record); } catch { }
         }
+    }
+
+    private sealed class SentContent(HttpContent inner, Action sent) : HttpContent
+    {
+        public static SentContent Create(HttpContent inner, Action sent)
+        {
+            var result = new SentContent(inner, sent);
+            foreach (var header in inner.Headers) result.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            return result;
+        }
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        { await inner.CopyToAsync(stream); sent(); }
+        protected override bool TryComputeLength(out long length) { length = inner.Headers.ContentLength ?? -1; return length >= 0; }
+        protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
     }
 
     private static HttpRequestMessage CreateUpstreamRequest(HttpRequest source, ProxyRequest parsed)

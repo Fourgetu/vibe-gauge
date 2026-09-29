@@ -54,13 +54,14 @@ public static class CliBridge
         catch { return false; }
     }
 
-    public static void Configure(AppPaths paths, string executable, bool enable, bool hooks) => Locked(paths, () =>
+    public static void Configure(AppPaths paths, string executable, bool enable, bool hooks, string tool = "claude") => Locked(paths, () =>
     {
-        var path = Path.Combine(paths.ClaudeRoot, "settings.json");
-        var statePath = Path.Combine(paths.LocalDataRoot, "claude-bridge-state.json");
+        if (tool is not ("claude" or "agy") || tool == "agy" && hooks) throw new ArgumentException("Unsupported bridge");
+        var path = tool == "agy" ? Path.Combine(paths.GeminiRoot, "antigravity-cli", "settings.json") : Path.Combine(paths.ClaudeRoot, "settings.json");
+        var statePath = Path.Combine(paths.LocalDataRoot, tool + "-bridge-state.json");
         var settings = Read(path);
         var state = Read(statePath);
-        var command = $"\"{executable}\" {(hooks ? HookFlag : StatusFlag)}";
+        var command = $"\"{executable}\" {(hooks ? HookFlag : "--vibegauge-statusline=" + tool)}";
         if (enable && File.Exists(path))
         {
             var backup = path + ".vibegauge-" + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff") + "-" + Guid.NewGuid().ToString("N")[..6] + ".bak";
@@ -111,6 +112,69 @@ public static class CliBridge
         Write(path, settings);
         return true;
     });
+
+    public static bool StatusInstalled(AppPaths paths, string tool)
+    {
+        if (tool is not ("claude" or "agy")) return false;
+        try
+        {
+            var file = tool == "agy" ? Path.Combine(paths.GeminiRoot, "antigravity-cli", "settings.json") : Path.Combine(paths.ClaudeRoot, "settings.json");
+            return Read(file)["statusLine"]?["command"]?.GetValue<string>()?.Contains("--vibegauge-statusline=" + tool, StringComparison.Ordinal) == true;
+        }
+        catch { return false; }
+    }
+
+    public static string RecordAgyStatus(AppPaths paths, JsonObject payload, DateTimeOffset now) => Locked(paths, () =>
+    {
+        if ((payload["quota"] ?? payload["quotas"]) is not JsonObject quota) return "";
+        var model = payload["model"] is JsonObject m ? m["id"]?.GetValue<string>() ?? "" : payload["model"]?.GetValue<string>() ?? "";
+        var defaultPool = new[] { "claude", "gpt", "3p" }.Any(x => model.Contains(x, StringComparison.OrdinalIgnoreCase)) ? "3p" : "gemini";
+        var path = Path.Combine(paths.LocalDataRoot, "agy-quota.json");
+        var cache = Read(path);
+        var pools = cache["pools"] as JsonObject ?? new();
+        var pieces = new List<string>();
+        foreach (var (name, node) in quota)
+        {
+            if (node is not JsonObject value) continue;
+            var key = name.ToLowerInvariant();
+            var pool = key.StartsWith("3p") ? "3p" : key.StartsWith("gemini") ? "gemini" : defaultPool;
+            var window = key.Contains("5h") || key.Contains("five") ? "5h" : key.Contains("week") || key.Contains("7d") ? "weekly" : null;
+            var remaining = Number(value["remaining_fraction"]) ?? (Number(value["used_percentage"]) is { } used ? 1 - used / 100 : null);
+            if (window is null || remaining is null || !double.IsFinite(remaining.Value)) continue;
+            var reset = Number(value["reset_at"]) ?? (Number(value["reset_in_seconds"]) is { } seconds && double.IsFinite(seconds) ? now.ToUnixTimeSeconds() + seconds : null);
+            var windows = pools[pool] as JsonObject ?? new();
+            windows[window] = new JsonObject { ["remaining_fraction"] = Math.Clamp(remaining.Value, 0, 1),
+                ["reset_at"] = reset, ["recorded_at"] = now.ToUnixTimeSeconds() };
+            if (windows.Parent is null) pools[pool] = windows;
+            pieces.Add($"{pool} {window} {(1 - Math.Clamp(remaining.Value, 0, 1)) * 100:0}%");
+        }
+        if (pools.Parent is null) cache["pools"] = pools;
+        cache["updated_at"] = now.ToUnixTimeSeconds();
+        Write(path, cache);
+        return string.Join(" · ", pieces);
+    });
+
+    public static async Task<string?> ForwardOriginalAgyAsync(AppPaths paths, string payload)
+    {
+        var command = Read(Path.Combine(paths.LocalDataRoot, "agy-bridge-state.json"))["originalStatusLine"]?["command"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(command) || command.Contains("--vibegauge-statusline=", StringComparison.Ordinal)) return null;
+        using var process = new System.Diagnostics.Process { StartInfo = new("cmd.exe") {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true } };
+        process.StartInfo.ArgumentList.Add("/d"); process.StartInfo.ArgumentList.Add("/s"); process.StartInfo.ArgumentList.Add("/c"); process.StartInfo.ArgumentList.Add(command);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
+        {
+            process.Start();
+            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var error = process.StandardError.ReadToEndAsync(timeout.Token);
+            try { await process.StandardInput.WriteAsync(payload.AsMemory(), timeout.Token); process.StandardInput.Close(); }
+            catch (IOException) { /* Some original status lines exit without reading stdin. */ }
+            await process.WaitForExitAsync(timeout.Token);
+            await error;
+            return await output;
+        }
+        catch (OperationCanceledException) { try { process.Kill(true); } catch { } return null; }
+    }
 
     public static string RecordStatus(AppPaths paths, JsonObject payload, DateTimeOffset now) => Locked(paths, () =>
     {

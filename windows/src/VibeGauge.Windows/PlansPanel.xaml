@@ -3,6 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:VibeGauge.Windows">
     <UserControl.Resources>
+        <Style x:Key="ProviderCardActionStyle" TargetType="Button">
+            <Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate></Setter.Value></Setter>
+            <Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Cursor" Value="Arrow" /></Trigger></Style.Triggers>
+        </Style>
         <Style x:Key="DotStyle" TargetType="Ellipse">
             <Setter Property="Fill" Value="{StaticResource MutedBrush}" />
             <Style.Triggers>
@@ -39,9 +47,11 @@
                 <ItemsControl ItemsSource="{Binding Platforms}">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:ProviderCardPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate><DataTemplate>
-                        <Border Style="{StaticResource CardStyle}" Padding="10,8" ToolTip="{Binding FullTooltip}" ToolTipService.InitialShowDelay="350" ToolTipService.ShowDuration="60000">
+                        <Button Style="{StaticResource ProviderCardActionStyle}" IsEnabled="{Binding CanOpenDetail}" Click="Provider_Click" AutomationProperties.Name="{Binding Name, StringFormat=查看 {0} 详情}">
+                        <Border Style="{StaticResource CardStyle}" Padding="10,8" ToolTip="{Binding FullTooltip}" ToolTipService.ShowOnDisabled="True" ToolTipService.InitialShowDelay="350" ToolTipService.ShowDuration="60000">
                             <StackPanel>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,4">
+                                    <TextBlock DockPanel.Dock="Right" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" Foreground="{StaticResource TextMutedBrush}" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding CanOpenDetail, Converter={StaticResource BoolToVisibility}}" />
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="5,0,0,0" />
                                     <DockPanel LastChildFill="True">
                                         <Ellipse DockPanel.Dock="Left" Width="6" Height="6" Margin="0,0,5,0" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" />
@@ -73,14 +83,16 @@
                                 </TextBlock>
                             </StackPanel>
                         </Border>
+                        </Button>
                     </DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <TextBlock Text="已收起所有客户端，可在系统页重新选择" Style="{StaticResource CaptionStyle}" TextWrapping="Wrap" Visibility="{Binding HasNoVisibleClients, Converter={StaticResource BoolToVisibility}}" />
                 <local:SessionsPanel x:Name="SessionsView" Margin="0,11,0,0" />
                 <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,11,0,11" />
                 <DockPanel x:Name="UsageSummaryHeading" LastChildFill="True">
                     <Border DockPanel.Dock="Right" Background="{StaticResource GoodDimBrush}" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"><TextBlock Text="{Binding CacheHitText, StringFormat=缓存 {0}}" Foreground="{StaticResource GoodBrush}" FontWeight="SemiBold" FontSize="12" /></Border>
-                    <WrapPanel VerticalAlignment="Center" ToolTip="总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{Binding TotalTokensText}" FontSize="16" FontWeight="Bold" Margin="9,0,0,0" /></WrapPanel>
+                    <WrapPanel VerticalAlignment="Center" ToolTip="全部客户端今日总量（包含已收起的客户端）。总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{Binding TotalTokensText}" FontSize="16" FontWeight="Bold" Margin="9,0,0,0" /></WrapPanel>
                 </DockPanel>
                 <ProgressBar Value="{Binding CacheHitPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,8,0,7" ToolTip="上下文缓存命中率" />
                 <DockPanel LastChildFill="True">

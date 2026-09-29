@@ -44,7 +44,7 @@ public sealed class WindowsSystemScanner
             var listeners = NativeMethods.ListeningProcessIds();
             var servicePids = ReadServiceProcessIds();
             var protectedTokens = ReadStartupTokens().Concat(ReadScheduledTaskTokens()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            var report = BuildProcessReport(processes, listeners, servicePids, protectedTokens);
+            var report = BuildProcessReport(processes, listeners, servicePids, protectedTokens) with { LocalRuntimes = LocalRuntimeDiscovery.From(processes.Values) };
             return (ReadMetrics(), report);
         }
     }
@@ -67,7 +67,13 @@ public sealed class WindowsSystemScanner
             }
             try
             {
+                using var owned = new ManagementObject($"Win32_Process.Handle='{target.ProcessId}'");
+                using var owner = owned.InvokeMethod("GetOwnerSid", null, null);
+                if (owner?["Sid"] as string != System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value)
+                { skipped++; messages.Add($"PID {target.ProcessId} 非当前用户，跳过"); continue; }
                 using var process = Process.GetProcessById(target.ProcessId);
+                if (target.StartedAt is null || Math.Abs((process.StartTime.ToUniversalTime() - target.StartedAt.Value.UtcDateTime).TotalSeconds) > 1)
+                { skipped++; messages.Add($"PID {target.ProcessId} 启动时间变化，跳过"); continue; }
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(2000);
                 killed++;
@@ -295,6 +301,8 @@ public sealed class WindowsSystemScanner
             else if (IsGemini(command)) matched[process.ProcessId] = "gemini";
             else if (IsPiDesktop(process)) matched[process.ProcessId] = "pi-desktop";
             else if (IsZCode(process)) matched[process.ProcessId] = "zcode";
+            else if (IsWorkBuddy(process)) matched[process.ProcessId] = "workbuddy";
+            else if (IsDsh(process)) matched[process.ProcessId] = "dsh";
         }
         var ollamaRunning = processes.Values.Any(process =>
             IsOllama(process.CommandLine.Length > 0 ? process.CommandLine : process.Name));
@@ -334,7 +342,14 @@ public sealed class WindowsSystemScanner
             roots.Count(x => x.Value == "pi-desktop"),
             ollamaRunning,
             activeMcp, activeMemory, orphans.OrderByDescending(x => x.MemoryMb).ToArray(), protectedReasons.Take(30).ToArray(),
-            roots.Count(x => x.Value == "zcode"));
+            roots.Count(x => x.Value == "zcode"), roots.Count(x => x.Value == "workbuddy"), roots.Count(x => x.Value == "dsh"),
+            roots.Select(x =>
+            {
+                var process = processes[x.Key];
+                var provider = x.Value switch { "claude" => "Claude", "codex" => "Codex", "gemini" => "Gemini", "pi-desktop" => "PI-Desktop",
+                    "zcode" => "ZCode", "workbuddy" => "WorkBuddy", "dsh" => "DSH Desktop", _ => x.Value };
+                return new ProviderProcess(provider, process.ProcessId, process.StartedAt, process.MemoryMb, process.ExecutablePath);
+            }).ToArray());
     }
 
     private static bool HasMatchedAncestor(int pid, IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlyDictionary<int, string> matched)
@@ -385,6 +400,13 @@ public sealed class WindowsSystemScanner
     public static bool IsZCode(ProcessSnapshot process) =>
         Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
             .Equals("ZCode.exe", StringComparison.OrdinalIgnoreCase);
+    public static bool IsWorkBuddy(ProcessSnapshot process) =>
+        Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
+            is var name && (name.Equals("WorkBuddy.exe", StringComparison.OrdinalIgnoreCase) || name.Equals("WorkBuddy AI.exe", StringComparison.OrdinalIgnoreCase));
+    public static bool IsDsh(ProcessSnapshot process) =>
+        Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
+            .Equals("DSH Desktop.exe", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsOllama(string command)
     {
         var value = command.Trim().TrimStart('"').ToLowerInvariant();

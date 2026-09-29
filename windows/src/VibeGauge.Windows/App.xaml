@@ -349,6 +349,28 @@
             </Setter>
         </Style>
 
+        <Style x:Key="ClientVisibilityToggleStyle" TargetType="CheckBox" BasedOn="{StaticResource ToggleStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="{TemplateBinding Content}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <Border x:Name="Track" Grid.Column="1" Width="30" Height="17" CornerRadius="9" Background="{StaticResource TrackBrush}">
+                                <Ellipse x:Name="Thumb" Width="13" Height="13" Fill="{StaticResource TextMutedBrush}" HorizontalAlignment="Left" Margin="2" />
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{StaticResource GoodDimBrush}" />
+                                <Setter TargetName="Thumb" Property="Fill" Value="{StaticResource GoodBrush}" />
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="SlimScrollBar" TargetType="ScrollBar">
             <Setter Property="Width" Value="8" />
             <Setter Property="MinWidth" Value="0" />

@@ -42,7 +42,7 @@ public sealed class OfficialSources(AppPaths paths)
             ("bl", "阿里云百炼 Coding Plan", new[] { "usage", "coding-plan", "--output", "json" })
         })
         {
-            var executable = FindExecutable(name);
+            var executable = FindExecutable(paths, name);
             if (executable is not null) tasks.Add(ProbeCli(executable, title, arguments));
         }
         return await Task.WhenAll(tasks);
@@ -127,7 +127,7 @@ public sealed class OfficialSources(AppPaths paths)
             if (text.Length < 512 * 1024) text.Append(chunk, 0, Math.Min(count, 512 * 1024 - text.Length));
         return text.ToString();
     }
-    private string? FindExecutable(string name)
+    public static string? FindExecutable(AppPaths paths, string name)
     {
         var directories = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
             .Concat([Path.Combine(paths.Home, ".local", "bin"), Path.Combine(paths.Home, ".volta", "bin"),

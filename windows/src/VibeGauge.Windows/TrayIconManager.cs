@@ -14,12 +14,16 @@ public sealed class TrayIconManager : IDisposable
     private readonly Forms.NotifyIcon icon;
     private Icon? currentIcon;
     private readonly QuotaAlerts alerts;
+    private readonly AttentionPolicy attention;
+    private readonly Services.UpdateChecker updates;
 
     public TrayIconManager(MainWindow window, DashboardViewModel viewModel)
     {
         this.window = window;
         this.viewModel = viewModel;
         alerts = new(viewModel.Paths);
+        attention = new(viewModel.Paths);
+        updates = new(viewModel.Paths);
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("打开 VibeGauge", null, (_, _) => ShowWindow());
         menu.Items.Add("立即刷新", null, async (_, _) => await viewModel.RefreshAsync());
@@ -39,9 +43,16 @@ public sealed class TrayIconManager : IDisposable
     {
         var available = snapshot.System.AvailableMemoryPercent;
         SetIcon(available);
-        icon.Text = $"VibeGauge · 内存可用 {available}% · 今日 {snapshot.Usage.Turns} 次调用";
-        if (snapshot.Statistics is { } statistics && ForecastNotificationsEnabled())
-            foreach (var message in alerts.Evaluate(snapshot.Platforms, ActivityProfile.From(statistics.ActivityHours), snapshot.CapturedAt))
+        icon.Text = UiLocalization.IsEnglish ? $"VibeGauge · Memory free {available}% · {snapshot.Usage.Turns} calls today" : $"VibeGauge · 内存可用 {available}% · 今日 {snapshot.Usage.Turns} 次调用";
+        if (icon.ContextMenuStrip is { } menu)
+        { menu.Items[0].Text = UiLocalization.Text("打开 VibeGauge"); menu.Items[1].Text = UiLocalization.Text("立即刷新"); menu.Items[3].Text = UiLocalization.Text("退出"); }
+        foreach (var message in attention.Evaluate(snapshot, FeaturePreferences.Load(viewModel.Paths)))
+            icon.ShowBalloonTip(7000, "VibeGauge", UiLocalization.Text(message), Forms.ToolTipIcon.Warning);
+        if (updates.Scan() is { } release && updates.TakeNotification(release))
+            icon.ShowBalloonTip(7000, "VibeGauge · Windows 新版", $"{release.Version} 已发布，可在系统页打开正式发布页下载。不会自动安装。", Forms.ToolTipIcon.Info);
+        if (snapshot.Statistics is { } statistics)
+            foreach (var message in alerts.Evaluate(snapshot.Platforms, null, snapshot.CapturedAt,
+                ForecastNotificationsEnabled(), statistics.ProfileFor))
                 icon.ShowBalloonTip(7000, "VibeGauge · 额度预测", message, Forms.ToolTipIcon.Warning);
     }
 

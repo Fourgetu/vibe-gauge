@@ -28,7 +28,7 @@
                 <Border Width="32" Height="3" CornerRadius="2" Background="{StaticResource GripBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False" />
                 <Grid Grid.Row="1" Margin="15,0,10,10">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <Border Background="{StaticResource CardBrush}" CornerRadius="7" Padding="2" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Border Background="{StaticResource CardBrush}" CornerRadius="7" Padding="2" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="PlansTab" Content="订阅" GroupName="Navigation" Tag="0" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsSubscriptionSelected, Mode=OneWay}" Click="Nav_Click" />
                             <RadioButton Content="API" GroupName="Navigation" Tag="1" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApiSelected, Mode=OneWay}" Click="Nav_Click" />
@@ -38,6 +38,10 @@
                         </StackPanel>
                     </Border>
                     <TextBlock x:Name="HeaderMemory" Grid.Column="1" Text="{Binding HeaderMemoryText}" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="5,0,7,0" Visibility="Collapsed" />
+                    <DockPanel Grid.ColumnSpan="2" Margin="0,0,8,0" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True" Visibility="{Binding IsProviderDetailOpen, Converter={StaticResource BoolToVisibility}}">
+                        <Button x:Name="ProviderBackButton" DockPanel.Dock="Left" Style="{StaticResource IconButtonStyle}" Click="ProviderBack_Click" ToolTip="返回订阅页" AutomationProperties.Name="返回订阅页"><TextBlock Text="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="14" /></Button>
+                        <TextBlock Text="{Binding SelectedProviderName}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <Button x:Name="ThemeButton" Style="{StaticResource IconButtonStyle}" ToolTip="切换为浅色毛玻璃" AutomationProperties.Name="切换为浅色毛玻璃" Click="Theme_Click"><TextBlock x:Name="ThemeIcon" Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
                         <Button Style="{StaticResource IconButtonStyle}" ToolTip="立即刷新" AutomationProperties.Name="立即刷新" Click="Refresh_Click"><TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
@@ -47,7 +51,7 @@
                 </Grid>
             </Grid>
 
-            <Grid Grid.Row="1" Margin="15,0,10,0">
+            <Grid Grid.Row="1" Margin="15,0,10,0" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
                 <local:PlansPanel x:Name="PlansView" Visibility="{Binding IsSubscriptionSelected, Converter={StaticResource BoolToVisibility}}" />
                 <local:StatisticsPanel x:Name="StatisticsView" Visibility="{Binding IsStatsSelected, Converter={StaticResource BoolToVisibility}}" />
                 <local:NetworkPanel x:Name="NetworkView" Visibility="{Binding IsNetworkSelected, Converter={StaticResource BoolToVisibility}}" />
@@ -80,7 +84,7 @@
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,6"><StackPanel>
                                 <Grid><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Calls}" HorizontalAlignment="Right" Foreground="{StaticResource GoodBrush}" /></Grid>
                                 <TextBlock Text="{Binding Metrics}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5" Margin="0,5,0,0" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding CacheText}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" /><TextBlock Text="{Binding HealthText}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" />
+                                <TextBlock Text="{Binding CacheText}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" /><TextBlock Text="{Binding HealthText}" ToolTip="{Binding Detail}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" />
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         <TextBlock Text="模型" Style="{StaticResource SectionTitleStyle}" Margin="0,10,0,8" Visibility="{Binding HasApiModels, Converter={StaticResource BoolToVisibility}}" />
@@ -121,6 +125,17 @@
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,3,0"><StackPanel><TextBlock Text="CPU" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding CpuText}" FontSize="22" FontWeight="SemiBold" Margin="0,4,0,0" /></StackPanel></Border>
                             <Border Style="{StaticResource CardStyle}" Margin="3,0,0,0"><StackPanel><TextBlock Text="虚拟内存" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding PageFileText}" FontWeight="SemiBold" Margin="0,7,0,0" /></StackPanel></Border>
                         </UniformGrid>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7" ToolTip="收起订阅页中该客户端的卡片、来源明细、会话和近期记录；后台采集、今日总量和统计页不受影响。">
+                            <StackPanel>
+                                <TextBlock Text="订阅页显示" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <ItemsControl x:Name="ClientVisibilityOptions" ItemsSource="{Binding ClientOptions}">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <CheckBox Content="{Binding Name}" IsChecked="{Binding IsVisible, Mode=TwoWay}" Style="{StaticResource ClientVisibilityToggleStyle}" Margin="0,4,8,4" ToolTip="{Binding Name}" AutomationProperties.Name="{Binding Name}" />
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
                         <local:SettingsPanel Margin="0,5,0,9" />
                         <TextBlock Text="进程与清理" Style="{StaticResource SectionTitleStyle}" Margin="0,10,0,8" />
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><TextBlock Text="活动 MCP" FontWeight="SemiBold" /><TextBlock Text="{Binding McpText}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,0" /><TextBlock Text="{Binding NpxText}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,0" /></StackPanel></Border>
@@ -132,6 +147,7 @@
                 </ScrollViewer>
             </Grid>
 
+            <local:ProviderDetailPanel x:Name="ProviderDetailView" Grid.Row="1" Margin="15,0,10,0" Visibility="{Binding IsProviderDetailOpen, Converter={StaticResource BoolToVisibility}}" />
             <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="15,5,15,0">
                 <DockPanel LastChildFill="True" VerticalAlignment="Center">
                     <Button DockPanel.Dock="Left" Content="退出 VibeGauge" Background="Transparent" BorderThickness="0" Padding="0,4" FontSize="12" Style="{StaticResource ActionButtonStyle}" Click="Exit_Click" />

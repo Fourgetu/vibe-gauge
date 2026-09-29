@@ -70,10 +70,15 @@ public sealed class ProxyIntegrationTests
         Assert.Equal(20, record.GetProperty("out").GetInt64());
         Assert.Equal(4, record.GetProperty("think").GetInt64());
         Assert.Equal("/openai-json", record.GetProperty("path").GetString());
+        Assert.True(record.GetProperty("complete").GetBoolean());
+        Assert.True(record.GetProperty("reached_upstream").GetBoolean());
+        Assert.Equal("999", record.GetProperty("rl").GetProperty("x-ratelimit-remaining-tokens").GetString());
+        Assert.Equal("1m30s", record.GetProperty("rl").GetProperty("x-ratelimit-reset-requests").GetString());
         var allFiles = string.Join("\n", Directory.EnumerateFiles(fixture.DataDirectory).Select(File.ReadAllText));
         Assert.DoesNotContain(bearer, allFiles);
         Assert.DoesNotContain(apiKey, allFiles);
         Assert.DoesNotContain(queryKey, allFiles);
+        Assert.DoesNotContain("RESPONSE_SECRET", allFiles);
         using var health = await fixture.Client.GetAsync("/_vibegauge/health");
         var healthText = await health.Content.ReadAsStringAsync();
         Assert.DoesNotContain(bearer, healthText);
@@ -81,6 +86,7 @@ public sealed class ProxyIntegrationTests
         Assert.DoesNotContain(queryKey, healthText);
         var captured = fixture.Upstream.Requests.Last();
         Assert.Equal("Bearer " + bearer, captured.Authorization);
+        Assert.StartsWith("application/json", captured.ContentType);
         Assert.Equal(apiKey, captured.ApiKey);
         Assert.Contains("key=" + queryKey, captured.PathAndQuery);
     }

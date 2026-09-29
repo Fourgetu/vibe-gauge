@@ -81,7 +81,8 @@ public sealed class StatisticsPanel : Wpf.UserControl
         var unchanged = tokenUnit == unit && body.Children.Count > 0 && renderedToday == DateOnly.FromDateTime(DateTime.Today) &&
             statistics.Days.SequenceEqual(next.Days) && statistics.Models.SequenceEqual(next.Models) &&
             statistics.Hours.SequenceEqual(next.Hours) && statistics.ActivityHours.SequenceEqual(next.ActivityHours) &&
-            (statistics.DailyModels ?? []).SequenceEqual(next.DailyModels ?? []);
+            (statistics.DailyModels ?? []).SequenceEqual(next.DailyModels ?? []) &&
+            statistics.Prices?.Estimate(CurrentPeriod.Models) == next.Prices?.Estimate(CurrentPeriod.Models);
         statistics = next;
         tokenUnit = unit;
         if (!unchanged) Render();
@@ -166,6 +167,12 @@ public sealed class StatisticsPanel : Wpf.UserControl
         total.FontSize = 20;
         total.ToolTip = "总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。";
         body.Children.Add(total);
+        if (statistics.Prices is { } prices)
+        {
+            var cost = InsightUi.Text(prices.Error.Length > 0 ? prices.Error : prices.Estimate(period.Models).Description);
+            cost.ToolTip = $"价格表日期 {prices.AsOf} · 每百万 Token 单价；缓存单独计价，思考不重复计入。";
+            body.Children.Add(cost);
+        }
         var interval = period.Start == period.End ? period.Start.ToString("yyyy-MM-dd") : $"{period.Start:yyyy-MM-dd} 至 {period.End:yyyy-MM-dd}";
         InsightUi.Row(body, period.Start == period.End ? $"{period.Calls:N0} 次调用" : $"{period.Calls:N0} 次调用 · {period.ActiveDays} 个活跃日",
             $"{interval}\n上下文 {Tokens(period.Context)} · 输出 {Tokens(period.Output)}\n缓存读取 {Tokens(period.CacheRead)} · 思考 {Tokens(period.Thinking)}");
@@ -430,6 +437,8 @@ public sealed class SessionsPanel : Wpf.UserControl
 public sealed class NetworkPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel adapters = new();
+    private readonly Wpf.StackPanel diagnostics = new();
+    private NetworkDiagnosticsReport? lastDiagnostics;
     private readonly Wpf.TextBlock result = InsightUi.Text("出口检测仅在点击时联网，不发送账号或用量数据。");
     public NetworkPanel()
     {
@@ -442,15 +451,38 @@ public sealed class NetworkPanel : Wpf.UserControl
                 var button = (Wpf.Button)sender; button.IsEnabled = false;
                 try { result.Text = await NetworkMonitor.ProbeEgressAsync(ipv6); } finally { button.IsEnabled = true; }
             }));
-        body.Children.Add(buttons); body.Children.Add(result); body.Children.Add(adapters);
+        buttons.Children.Add(InsightUi.Button("完整诊断", async (sender, _) =>
+        {
+            var button = (Wpf.Button)sender; button.IsEnabled = false;
+            try
+            {
+                var paths = DataContext is ViewModels.DashboardViewModel vm ? vm.Paths : new AppPaths();
+                RenderDiagnostics(await new NetworkDiagnostics(paths).RefreshAsync());
+            }
+            finally { button.IsEnabled = true; }
+        }));
+        body.Children.Add(buttons); body.Children.Add(result); body.Children.Add(diagnostics); body.Children.Add(adapters);
         Content = new Wpf.ScrollViewer { Content = body, VerticalScrollBarVisibility = Wpf.ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = Wpf.ScrollBarVisibility.Disabled };
     }
-    public void Update(IReadOnlyList<NetworkAdapterInfo>? value)
+    public void Update(IReadOnlyList<NetworkAdapterInfo>? value, NetworkDiagnosticsReport? report = null)
     {
+        if (report is not null && report != lastDiagnostics) RenderDiagnostics(report);
         adapters.Children.Clear();
         foreach (var row in value ?? [])
             InsightUi.Row(adapters, $"{row.Name} · {row.Kind}",
                 $"{row.Addresses}\n网关：{row.Gateway}\nDNS：{row.Dns}\n↓ {row.ReceiveBytesPerSecond / 1024:0.0} KB/s   ↑ {row.SendBytesPerSecond / 1024:0.0} KB/s");
         if (adapters.Children.Count == 0) adapters.Children.Add(InsightUi.Text("未检测到活动网卡"));
+    }
+    private void RenderDiagnostics(NetworkDiagnosticsReport report)
+    {
+        lastDiagnostics = report;
+        diagnostics.Children.Clear();
+        diagnostics.Children.Add(InsightUi.Text($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}"));
+        foreach (var e in report.Exits) InsightUi.Row(diagnostics, e.Provider, e.Error.Length > 0 ? e.Error : $"{e.Ip} · {e.Region} · {e.Colo}");
+        InsightUi.Row(diagnostics, "出口对比", report.Exits.Where(x => x.Ip.Length > 0).Select(x => x.Ip).Distinct().Count() > 1
+            ? "各站点出口不同，可能由分流规则造成；请结合节点链核验。" : "已确认的出口一致；未回报的站点不参与判断。");
+        InsightUi.Row(diagnostics, "Clash / Mihomo（只读）", string.Join("\n", report.Proxy));
+        InsightUi.Row(diagnostics, "Wi-Fi / Tailscale", report.Local.Count > 0 ? string.Join("\n", report.Local) : "未取得附加接口信息");
+        InsightUi.Row(diagnostics, "DNS / IPv6", report.Dns + "\n" + report.Ipv6);
     }
 }

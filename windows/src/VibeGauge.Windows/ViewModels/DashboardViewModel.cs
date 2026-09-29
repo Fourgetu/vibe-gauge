@@ -14,6 +14,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private readonly ProxyManager proxy;
     private readonly ProxySettings proxySettings;
     private readonly TokenUnitSettings tokenUnitSettings;
+    private readonly ClientVisibilitySettings clientVisibilitySettings;
+    private readonly HashSet<string> hiddenClients;
     private bool internationalTokens;
     private readonly DispatcherTimer timer;
     private bool refreshing;
@@ -46,6 +48,26 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private int selectedTab;
     private string selectedApiRange = "today";
     private DashboardSnapshot? lastSnapshot;
+    private string? selectedProviderName;
+    public string? SelectedProviderName => selectedProviderName;
+    public bool IsProviderDetailOpen => selectedProviderName is not null;
+    public bool IsOverview => !IsProviderDetailOpen;
+    internal DashboardSnapshot? CurrentSnapshot => lastSnapshot;
+
+    public bool OpenProviderDetail(string name)
+    {
+        if (!Platforms.Any(x => x.Name == name && x.CanOpenDetail)) return false;
+        selectedProviderName = name;
+        Raise(nameof(SelectedProviderName)); Raise(nameof(IsProviderDetailOpen)); Raise(nameof(IsOverview));
+        return true;
+    }
+
+    public void CloseProviderDetail()
+    {
+        if (selectedProviderName is null) return;
+        selectedProviderName = null;
+        Raise(nameof(SelectedProviderName)); Raise(nameof(IsProviderDetailOpen)); Raise(nameof(IsOverview));
+    }
 
     public DashboardViewModel(
         DashboardCoordinator coordinator,
@@ -59,6 +81,9 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         this.proxySettings = proxySettings;
         tokenUnitSettings = new(coordinator.Paths.LocalDataRoot);
         internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
+        clientVisibilitySettings = new(coordinator.Paths.LocalDataRoot);
+        hiddenClients = clientVisibilitySettings.Load();
+        EnsureClientOptions(["Claude", "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop"]);
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -70,6 +95,32 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<DashboardSnapshot>? SnapshotChanged;
 
     public ObservableCollection<PlatformRow> Platforms { get; } = [];
+    public ObservableCollection<ClientDisplayOption> ClientOptions { get; } = [];
+    public bool HasNoVisibleClients => Platforms.Count == 0;
+
+    public bool IsClientVisible(string name) => !hiddenClients.Contains(name == "Claude Code" ? "Claude" : name);
+
+    public SessionSummary? VisibleSessions(SessionSummary? sessions) => sessions is null || hiddenClients.Count == 0 ? sessions :
+        new(sessions.Active.Where(x => IsClientVisible(x.Tool)).ToArray(), sessions.Pending.Where(x => IsClientVisible(x.Tool)).ToArray());
+
+    private void EnsureClientOptions(IEnumerable<string> names)
+    {
+        foreach (var name in names)
+            if (!ClientOptions.Any(x => x.Name == name))
+                ClientOptions.Add(new(name, IsClientVisible(name), SetClientVisibility));
+    }
+
+    private void SetClientVisibility(string name, bool visible)
+    {
+        if (visible) hiddenClients.Remove(name); else hiddenClients.Add(name);
+        var saved = clientVisibilitySettings.Save(hiddenClients);
+        if (lastSnapshot is { } snapshot)
+        {
+            Apply(snapshot);
+            SnapshotChanged?.Invoke(this, snapshot);
+        }
+        if (!saved) StatusText = "显示已更新，但设置保存失败，重启后可能恢复默认";
+    }
     public ObservableCollection<UsageSourceRow> UsageSources { get; } = [];
     public ObservableCollection<RecentRow> Recent { get; } = [];
     public ObservableCollection<ApiProviderRow> ApiProviders { get; } = [];
@@ -141,6 +192,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public bool IsNetworkSelected => selectedTab == 4;
     public AppPaths Paths => coordinator.Paths;
     public void InvalidateOfficial() => coordinator.InvalidateOfficial();
+    public bool EnsureDurableHistory() => coordinator.EnsureDurableHistory();
     public bool HasNoRecent => Recent.Count == 0;
     public bool HasApiProviders => ApiProviders.Count > 0;
     public bool HasApiModels => ApiModels.Count > 0;
@@ -175,6 +227,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
     public void SelectTab(int index)
     {
+        CloseProviderDetail();
         if (selectedTab == index) return;
         selectedTab = index;
         Raise(nameof(IsSubscriptionSelected));
@@ -256,12 +309,19 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         ThinkingText = usage.Turns == 0 ? "暂无" : Tokens(usage.ThinkingTokens);
         CallsText = usage.Turns.ToString();
 
-        var profile = ActivityProfile.From(value.Statistics?.ActivityHours ?? new double[24]);
-        Platforms.ReplaceWith(value.Platforms.Select(x => PlatformRow.From(x, profile, SelectedTokenUnit)),
+        var recordedSources = usage.Sources.Where(s => s.Turns > 0).Select(s => s.Name)
+            .Concat((value.Statistics?.DailyModels ?? []).Where(x => x.Usage.Calls > 0).Select(x => x.Usage.Source))
+            .ToHashSet(StringComparer.Ordinal);
+        EnsureClientOptions(value.Platforms.Select(x => x.Name));
+        Platforms.ReplaceWith(value.Platforms.Where(x => IsClientVisible(x.Name)).Select(x => PlatformRow.From(x, value.Statistics?.ProfileFor(x.Name), SelectedTokenUnit) with
+            { CanOpenDetail = ProviderDetails.CanOpen(x) || recordedSources.Any(s => ProviderDetails.Matches(x.Name, s)) ||
+                value.Sessions?.Active.Any(s => ProviderDetails.Matches(x.Name, s.Tool)) == true }),
             (old, next) => old.Quotas.SequenceEqual(next.Quotas) && old with { Quotas = next.Quotas } == next);
-        ActiveProviderText = $"{value.Platforms.Count(x => x.IsRunning)} 个活动";
-        UsageSources.ReplaceWith(usage.Sources.Select(x => UsageSourceRow.From(x, SelectedTokenUnit)));
-        Recent.ReplaceWith(usage.Recent.Select(x => RecentRow.From(x, SelectedTokenUnit)));
+        Raise(nameof(HasNoVisibleClients));
+        if (selectedProviderName is { } selected && !Platforms.Any(x => x.Name == selected)) CloseProviderDetail();
+        ActiveProviderText = $"{value.Platforms.Count(x => x.IsRunning && IsClientVisible(x.Name))} 个活动";
+        UsageSources.ReplaceWith(usage.Sources.Where(x => IsClientVisible(x.Name)).Select(x => UsageSourceRow.From(x, SelectedTokenUnit)));
+        Recent.ReplaceWith(usage.Recent.Where(x => IsClientVisible(x.Source)).Select(x => RecentRow.From(x, SelectedTokenUnit)));
         Raise(nameof(HasNoRecent));
         ApplyApi(value.Api);
         Orphans.ReplaceWith(value.Processes.Orphans);
@@ -282,11 +342,13 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         ApiRecent.ReplaceWith((api.Recent ?? []).Select(x => ApiRecentRow.From(x, SelectedTokenUnit)));
         Raise(nameof(HasApiProviders)); Raise(nameof(HasApiModels)); Raise(nameof(HasApiRecent));
         ApiHeadline = range.Calls > 0
-            ? $"{range.Label}总 Token {Tokens(range.TotalTokens)} · {range.Calls} 次"
+            ? $"{range.Label}{(range.UnknownUsage > 0 ? "已记录" : "总")} Token {Tokens(range.TotalTokens)} · {range.Calls} 次" + (range.UnknownUsage > 0 ? $"\n{range.UnknownUsage} 次成功调用用量未知" : "")
             : api.Note;
         ApiDetail = range.Calls > 0
             ? $"输入 {Tokens(range.ContextTokens)} · 输出 {Tokens(range.OutputTokens)}\n缓存 {Tokens(range.CacheReadTokens)} · 思考 {Tokens(range.ThinkingTokens)} · 错误 {range.Errors}"
             : "API Usage 与 CLI Usage 独立统计";
+        if (range.Quality is { } quality && range.Calls > 0) ApiDetail += "\n" + quality.Description;
+        if (range.Cost is { } cost) ApiDetail += "\n" + cost.Description;
     }
 
     private void ApplyProxy(ProxyRuntimeStatus value)
@@ -356,7 +418,8 @@ public sealed record PlatformRow(
     bool IsWide,
     bool ShowDetail = false,
     bool IsCompact = false,
-    string CompactDetail = "")
+    string CompactDetail = "",
+    bool CanOpenDetail = false)
 {
     public string DisplayDetail => CompactDetail.Length > 0 ? CompactDetail : Detail;
     public bool ShowQuotaMeters => HasQuota && Name != "Gemini";
@@ -393,7 +456,7 @@ public sealed record PlatformRow(
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
         var runtime = value.IsRunning ? "运行中" : "未运行";
-        var desktop = value.Name is PiDesktopUsage.SourceName or ZCodeUsage.SourceName;
+        var desktop = value.Name is PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName;
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
@@ -428,7 +491,7 @@ public sealed record PlatformRow(
             quotas.Length == 0 || value.AlwaysShowDetail,
             desktop || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
-                ? string.Join("\n", detail.Split('\n').Take(2)) : "");
+                ? string.Join("\n", detail.Split('\n').Take(2)) : "", ProviderDetails.CanOpen(value));
     }
 }
 
@@ -470,14 +533,16 @@ public sealed record RecentRow(string Model, string Source, string Metrics, stri
     }
 }
 
-public sealed record ApiProviderRow(string Name, string Calls, string Metrics, string CacheText, string HealthText)
+public sealed record ApiProviderRow(string Name, string Calls, string Metrics, string CacheText, string HealthText, string Detail = "")
 {
     public static ApiProviderRow From(ApiProviderSummary value, TokenUnit unit = TokenUnit.Chinese) => new(
         value.Name,
         $"{value.Calls} 次",
-        $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
+        $"{(value.UnknownUsage > 0 ? "已记录" : "总")} Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
         $"缓存 {Formatting.Tokens(value.CacheReadTokens, unit)} · 写入 {Formatting.Tokens(value.CacheWriteTokens, unit)}",
-        $"错误 {value.Errors} · 平均 {value.AverageLatencyMs} ms");
+        $"错误 {value.Errors} · 平均 {value.AverageLatencyMs} ms" + (value.UnknownUsage > 0 ? $" · 用量未知 {value.UnknownUsage} 次" : "") +
+        (value.Quality is { } quality ? "\n" + quality.Description + (quality.Limits.Count > 0 ? $"\n限流回报 {quality.Limits.Count} 项（悬停查看）" : "") : ""),
+        value.Quality is { } detail ? string.Join("\n", detail.Limits.Select(x => $"{x.Header}: {x.DisplayValue} · {x.CapturedAt.LocalDateTime:MM-dd HH:mm}")) : "");
 }
 
 public sealed record ApiModelRow(string Provider, string Model, string Calls, string Metrics)
@@ -486,7 +551,7 @@ public sealed record ApiModelRow(string Provider, string Model, string Calls, st
         value.Provider,
         value.Model,
         $"{value.Calls} 次",
-        $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · {value.AverageLatencyMs} ms");
+        $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · {value.AverageLatencyMs} ms" + (value.UnknownUsage > 0 ? $" · 用量未知 {value.UnknownUsage} 次" : ""));
 }
 
 public sealed record ApiRecentRow(string Provider, string Model, string Time, string Tokens, string Status, string Tone)
@@ -498,7 +563,7 @@ public sealed record ApiRecentRow(string Provider, string Model, string Time, st
             value.Provider,
             value.Model,
             value.Timestamp.LocalDateTime.ToString("HH:mm:ss"),
-            Formatting.Tokens(value.TotalTokens, unit),
+            value.UnknownUsage ? "用量未知" : Formatting.Tokens(value.TotalTokens, unit),
             $"HTTP {value.Status} · {value.LatencyMs} ms",
             good ? "Good" : "Danger");
     }

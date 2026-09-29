@@ -15,22 +15,46 @@ public sealed class LocalServices(AppPaths paths)
     private DateTimeOffset captured;
     private IReadOnlyList<PlatformStatus> cached = [];
 
-    public async Task<IReadOnlyList<PlatformStatus>> ScanAsync()
+    public async Task<IReadOnlyList<PlatformStatus>> ScanAsync(IReadOnlyList<LocalRuntime>? runtimes = null)
     {
         if (DateTimeOffset.Now - captured < TimeSpan.FromSeconds(30)) return cached;
         var rows = new List<PlatformStatus>();
-        foreach (var (name, port) in new[] { ("LM Studio", 1234), ("llama.cpp", 8080) })
+        foreach (var (name, port) in new[] { ("LM Studio", 1234), ("llama.cpp", 8080) }.Concat((runtimes ?? []).Select(x => (x.Name, x.Port))).Distinct())
         {
+            var label = name == "llama.cpp" && port != 8080 ? $"llama.cpp :{port}" : name;
             try
             {
+                if (name == "LM Studio")
+                {
+                    IReadOnlyList<string>? loaded = null;
+                    foreach (var version in new[] { "v1", "v0" })
+                        try
+                        {
+                            using var lm = await GetJson($"http://127.0.0.1:{port}/api/{version}/models");
+                            loaded = LocalModelParser.LmStudio(lm.RootElement, version == "v0");
+                            if (loaded is not null) break;
+                        }
+                        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException) { }
+                    if (loaded is not null)
+                    {
+                        rows.Add(new(name, "本地", true, 0, ProviderDataState.Available,
+                            loaded.Count > 0 ? string.Join(", ", loaded) : "服务在线 · 无已加载模型", ModelCount: loaded.Count));
+                        continue;
+                    }
+                }
                 using var document = await GetJson($"http://127.0.0.1:{port}/v1/models");
                 if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) continue;
                 var ids = data.EnumerateArray().Where(x => x.TryGetProperty("id", out _))
                     .Select(x => x.GetProperty("id").GetString()).Where(x => !string.IsNullOrEmpty(x)).ToArray();
-                rows.Add(new(name, "本地", true, 0, ProviderDataState.Available,
-                    ids.Length > 0 ? string.Join(", ", ids) : "服务在线，未报告模型", ModelCount: ids.Length));
+                rows.Add(new(label, "本地", true, 0, ProviderDataState.Available,
+                    name == "LM Studio" ? "服务在线 · 已加载模型数量未知" : ids.Length > 0 ? string.Join(", ", ids) : "服务在线，未报告模型",
+                    ModelCount: name == "LM Studio" ? null : ids.Length));
             }
-            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException) { }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
+            {
+                if (runtimes?.Any(x => x.Name == name && x.Port == port) == true)
+                    rows.Add(new(label, "本地", true, 1, ProviderDataState.ReadFailed, $"进程运行中 · 端口 {port} 未响应（可能正在加载或未开启服务）", AlwaysShowDetail: true));
+            }
         }
         var kimi = Path.Combine(paths.Home, ".kimi-code");
         if (Directory.Exists(kimi)) rows.Add(await ReadKimi(kimi));

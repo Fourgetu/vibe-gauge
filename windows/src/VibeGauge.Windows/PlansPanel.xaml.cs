@@ -9,6 +9,11 @@ namespace VibeGauge.Windows;
 public partial class PlansPanel : Wpf.UserControl
 {
     public PlansPanel() => InitializeComponent();
+    public event Action<string>? ProviderSelected;
+    private void Provider_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PlatformRow { CanOpenDetail: true } row }) ProviderSelected?.Invoke(row.Name);
+    }
     public void Update(SessionSummary? sessions, TokenUnit unit = TokenUnit.Chinese) => SessionsView.Update(sessions, unit);
     internal void ScrollToUsageForCapture()
     {

@@ -22,7 +22,7 @@ public sealed class ScannerCacheWriteTests
             var paths = new AppPaths(home, Path.Combine(home, "local"));
             var scanner = new UsageScanner(paths);
             Assert.Equal(1, scanner.ScanToday().Turns);
-            var cache = Path.Combine(paths.LocalDataRoot, "usage-incremental.json");
+            var cache = Path.Combine(paths.LocalDataRoot, UsageScanner.CacheFileName);
             var sentinel = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(cache, sentinel);
             Assert.Equal(1, scanner.ScanToday().Turns);

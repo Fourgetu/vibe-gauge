@@ -132,7 +132,7 @@ public sealed class UsageKeysPanel : Wpf.UserControl
                         UsageKeyVault.Remove(key); Populate();
                         if (DataContext is DashboardViewModel viewModel) { viewModel.InvalidateOfficial(); await viewModel.RefreshAsync(); }
                     }
-                    catch (Exception e) { System.Windows.MessageBox.Show("删除失败：" + e.GetType().Name, "VibeGauge"); }
+                    catch (Exception e) { LocalizedMessageBox.Show("删除失败：" + e.GetType().Name, "VibeGauge"); }
                 });
                 remove.ToolTip = "删除已登记密钥";
                 Wpf.DockPanel.SetDock(remove, Wpf.Dock.Right); row.Children.Add(remove);

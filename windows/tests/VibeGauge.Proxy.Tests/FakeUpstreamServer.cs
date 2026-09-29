@@ -5,7 +5,7 @@ using System.Text;
 
 namespace VibeGauge.Proxy.Tests;
 
-internal sealed record CapturedRequest(string PathAndQuery, string Body, string Authorization, string ApiKey);
+internal sealed record CapturedRequest(string PathAndQuery, string Body, string Authorization, string ApiKey, string ContentType);
 
 internal sealed class FakeUpstreamServer : IAsyncDisposable
 {
@@ -42,12 +42,15 @@ internal sealed class FakeUpstreamServer : IAsyncDisposable
             context.Request.RawUrl ?? "",
             body,
             context.Request.Headers["Authorization"] ?? "",
-            context.Request.Headers["x-api-key"] ?? ""));
+            context.Request.Headers["x-api-key"] ?? "", context.Request.ContentType ?? ""));
         var path = context.Request.Url?.AbsolutePath ?? "/";
         try
         {
             if (path == "/openai-json")
             {
+                context.Response.Headers.Add("x-ratelimit-remaining-tokens", "999");
+                context.Response.Headers.Add("x-ratelimit-reset-requests", "1m30s");
+                context.Response.Headers.Add("x-provider-secret", "RESPONSE_SECRET");
                 await JsonAsync(context, """
                     {"id":"chat","model":"deepseek-chat","choices":[{"message":{"content":"你好"}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":60},"completion_tokens_details":{"reasoning_tokens":4}}}
                     """);

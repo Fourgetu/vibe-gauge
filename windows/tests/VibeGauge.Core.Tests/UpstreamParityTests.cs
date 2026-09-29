@@ -218,6 +218,8 @@ public sealed class UpstreamParityTests : IDisposable
         var p = new PlatformStatus("fixture", "Pro", true, 1, ProviderDataState.Available, "",
             new(60, Now.AddHours(3), Now, TimeSpan.FromHours(5)));
         Assert.Empty(alerts.Evaluate([p], null, Now));
+        for (var minute = 1; minute < 15; minute++)
+            Assert.Empty(alerts.Evaluate([p with { FiveHour = p.FiveHour! with { CapturedAt = Now.AddMinutes(minute) } }], null, Now.AddMinutes(minute)));
         Assert.Single(alerts.Evaluate([p with { FiveHour = p.FiveHour! with { CapturedAt = Now.AddMinutes(16) } }], null, Now.AddMinutes(16)));
         var drifted = p with { FiveHour = p.FiveHour! with { ResetsAt = Now.AddHours(3).AddMinutes(2), CapturedAt = Now.AddMinutes(17) } };
         Assert.Empty(alerts.Evaluate([drifted], null, Now.AddMinutes(17)));

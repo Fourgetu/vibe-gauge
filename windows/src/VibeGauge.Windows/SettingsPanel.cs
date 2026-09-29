@@ -27,15 +27,15 @@ public sealed class SettingsPanel : Wpf.UserControl
                 try
                 {
                     var executable = ProxyManager.FindProxyExecutable() ?? throw new IOException("请使用完整安装包，缺少 VibeGauge.Proxy.exe");
-                    if (enable && System.Windows.MessageBox.Show(
+                    if (enable && LocalizedMessageBox.Show(
                         hooks ? "将备份 Claude settings.json 并添加只观察 Hook。不批准请求、不读取提示词、不改其他 Hook。" :
                         "将备份 Claude settings.json 并连接状态栏以读取额度和上下文；可使用“恢复状态栏”还原。",
                         "连接 Claude Code", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
                     CliBridge.Configure(vm.Paths, executable, enable, hooks);
                     await vm.RefreshAsync();
-                    System.Windows.MessageBox.Show("设置已保存。新的 Claude Code 会话将使用更新后的配置。", "VibeGauge");
+                    LocalizedMessageBox.Show("设置已保存。新的 Claude Code 会话将使用更新后的配置。", "VibeGauge");
                 }
-                catch (Exception error) { System.Windows.MessageBox.Show("连接失败：" + error.Message, "VibeGauge"); }
+                catch (Exception error) { LocalizedMessageBox.Show("连接失败：" + error.Message, "VibeGauge"); }
             }));
         body.Children.Add(controls);
         using var registry = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\VibeGauge");
@@ -52,6 +52,7 @@ public sealed class SettingsPanel : Wpf.UserControl
             key.SetValue("ForecastNotifications", notifications.IsChecked == true ? 1 : 0);
         };
         body.Children.Add(notifications);
+        body.Children.Add(new FeatureSettingsPanel(vm));
         body.Children.Add(InsightUi.Text("代理连接", true));
         var config = ProxyConfiguration.Load(vm.Paths.LocalDataRoot);
         body.Children.Add(InsightUi.Text("本地端口"));
@@ -72,9 +73,9 @@ public sealed class SettingsPanel : Wpf.UserControl
             {
                 if (!int.TryParse(port.Text, out var number)) throw new ArgumentException("端口必须是 1024–65535 的整数");
                 await vm.ConfigureProxyAsync(number, route.Text.Trim());
-                System.Windows.MessageBox.Show("已保存。请在 API 页重新启动代理；端口改变后需要更新各 CLI 的 BASE_URL。", "VibeGauge");
+                LocalizedMessageBox.Show("已保存。请在 API 页重新启动代理；端口改变后需要更新各 CLI 的 BASE_URL。", "VibeGauge");
             }
-            catch (Exception error) { System.Windows.MessageBox.Show(error.Message, "VibeGauge"); }
+            catch (Exception error) { LocalizedMessageBox.Show(error.Message, "VibeGauge"); }
         }));
     }
 }

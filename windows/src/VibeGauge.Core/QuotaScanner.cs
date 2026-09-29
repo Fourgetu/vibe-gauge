@@ -11,19 +11,32 @@ public sealed class QuotaScanner(AppPaths paths)
     private DateTimeOffset ollamaMeasuredAt;
     private PlatformStatus? ollamaCached;
     private readonly Dictionary<string, CodexFileQuota> codexFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ProviderMetadata> metadataCache = new(StringComparer.Ordinal);
+    private IReadOnlyList<NamedQuota> codexExtra = Array.Empty<NamedQuota>();
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
-        UsageSourceSummary? zcodeTotal = null)
+        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null)
     {
-        return
+        PlatformStatus[] platforms =
         [
             ReadClaude(processes.ClaudeSessions),
             ReadCodex(processes.CodexSessions),
             ReadGemini(processes.GeminiSessions),
             ReadDesktopUsage(ZCodeUsage.SourceName, paths.ZCodeRoot, processes.ZCodeProcesses, usage, zcodeTotal),
             ReadPiDesktop(processes.PiDesktopProcesses, usage, piDesktopTotal),
-            ReadOllama(processes.OllamaRunning)
+            ReadOllama(processes.OllamaRunning),
+            ReadDesktopUsage(WorkBuddyUsage.SourceName, Directory.Exists(paths.WorkBuddyRoot) ? paths.WorkBuddyRoot : paths.WorkBuddyAiRoot,
+                processes.WorkBuddyProcesses, usage, workBuddyTotal),
+            ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal)
         ];
+        return platforms.Select(p =>
+        {
+            var metadata = ProviderDetails.ReadMetadata(paths, p);
+            if (metadataCache.TryGetValue(p.Name, out var previous) && previous.Rows.SequenceEqual(metadata.Rows) &&
+                previous.Sources.SequenceEqual(metadata.Sources)) metadata = previous;
+            else metadataCache[p.Name] = metadata;
+            return p with { Metadata = metadata };
+        }).ToArray();
     }
 
     private PlatformStatus ReadClaude(int sessions)
@@ -89,7 +102,8 @@ public sealed class QuotaScanner(AppPaths paths)
     {
         var running = sessionCount > 0;
         var tier = ReadCodexTier();
-        CodexBucket? newest = null;
+        var buckets = new Dictionary<string, CodexBucket>(StringComparer.OrdinalIgnoreCase);
+        CodexLimitHit? limitHit = null;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sessions = Path.Combine(paths.CodexRoot, "sessions");
         if (Directory.Exists(sessions))
@@ -109,19 +123,40 @@ public sealed class QuotaScanner(AppPaths paths)
                         codexFiles[file] = cached;
                     }
                     seen.Add(file);
-                    if (cached.Bucket is { } bucket && (newest is null || bucket.Captured > newest.Captured))
-                        newest = bucket;
+                    if (cached.Parsed.Hit is { } hit && (limitHit is null || hit.At > limitHit.At)) limitHit = hit;
+                    foreach (var (id, bucket) in cached.Parsed.Buckets)
+                        if (!buckets.TryGetValue(id, out var previous) || bucket.Captured > previous.Captured)
+                            buckets[id] = bucket;
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             }
         }
         foreach (var file in codexFiles.Keys.Where(file => !seen.Contains(file)).ToArray()) codexFiles.Remove(file);
+        buckets.TryGetValue("codex", out var newest);
+        if (limitHit is { } latest && (newest?.Weekly?.CapturedAt is not { } at || latest.At > at) &&
+            (latest.Reset is null || latest.Reset > DateTimeOffset.Now))
+        {
+            var exhausted = new QuotaWindow(100, latest.Reset ?? newest?.Weekly?.ResetsAt, latest.At, TimeSpan.FromDays(7));
+            newest = newest is null ? new(latest.At, null, exhausted, "", "") : newest with { Weekly = exhausted };
+        }
         if (newest?.Plan.Length > 0) tier = Formatting.CodexPlanLabel(newest.Plan);
         var state = newest is null
             ? tier == "未登录" ? ProviderDataState.NotSignedIn : ProviderDataState.NoQuota
             : QuotaState(tier, newest.Five, newest.Weekly);
-        return new("Codex", tier, running, sessionCount, state, StateDetail(state), newest?.Five, newest?.Weekly);
+        var extra = new List<NamedQuota>();
+        foreach (var (id, bucket) in buckets.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (id.Equals("codex", StringComparison.OrdinalIgnoreCase)) continue;
+            var label = string.IsNullOrWhiteSpace(bucket.Name) ? id : bucket.Name;
+            if (bucket.Five is { } five) extra.Add(new(label + " · " + WindowLabel(five), five));
+            if (bucket.Weekly is { } week) extra.Add(new(label + " · " + WindowLabel(week), week));
+        }
+        if (!codexExtra.SequenceEqual(extra)) codexExtra = extra.ToArray();
+        return new("Codex", tier, running, sessionCount, state, StateDetail(state), newest?.Five, newest?.Weekly, ExtraQuotas: codexExtra);
     }
+
+    private static string WindowLabel(QuotaWindow window) => window.Window.TotalDays >= 1
+        ? $"{window.Window.TotalDays:0.#} 天" : $"{window.Window.TotalHours:0.#} 小时";
 
     private string ReadCodexTier()
     {
@@ -159,20 +194,36 @@ public sealed class QuotaScanner(AppPaths paths)
     {
         var running = sessions > 0;
         var bridgePath = paths.ResolveOwnDataFile("agy-quota.json");
-        using var quota = JsonSupport.ReadDocument(File.Exists(bridgePath) ? bridgePath : paths.AgyQuota);
-        if (quota is null || !quota.RootElement.TryGetProperty("pools", out var pools))
+        var candidates = new Dictionary<string, QuotaWindow>();
+        var readable = false;
+        foreach (var path in new[] { bridgePath, paths.AgyQuota }.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var missingState = File.Exists(paths.AgyQuota) ? ProviderDataState.ReadFailed :
+            using var quota = JsonSupport.ReadDocument(path);
+            if (quota is null || !quota.RootElement.TryGetProperty("pools", out var pools) || pools.ValueKind != JsonValueKind.Object) continue;
+            readable = true;
+            var captured = Epoch(quota.RootElement.DoubleOrNull("updated_at"));
+            foreach (var pool in new[] { "gemini", "3p" })
+            {
+                if (!pools.TryGetProperty(pool, out var native)) continue;
+                foreach (var (key, span) in new[] { ("5h", TimeSpan.FromHours(5)), ("weekly", TimeSpan.FromDays(7)) })
+                {
+                    var window = RemainingWindow(native, key, captured, span);
+                    var id = pool + "/" + key;
+                    if (window is not null && (!candidates.TryGetValue(id, out var previous) ||
+                        (window.CapturedAt ?? DateTimeOffset.MinValue) > (previous.CapturedAt ?? DateTimeOffset.MinValue))) candidates[id] = window;
+                }
+            }
+        }
+        if (!readable)
+        {
+            var missingState = File.Exists(paths.AgyQuota) || File.Exists(bridgePath) ? ProviderDataState.ReadFailed :
                 Directory.Exists(paths.GeminiRoot) ? ProviderDataState.NoQuota : ProviderDataState.NotSignedIn;
             return new("Gemini", missingState == ProviderDataState.NotSignedIn ? "未登录" : "已检测", running, sessions, missingState, StateDetail(missingState));
         }
-        var captured = Epoch(quota.RootElement.DoubleOrNull("updated_at"));
-        pools.TryGetProperty("gemini", out var native);
-        pools.TryGetProperty("3p", out var thirdParty);
-        var five = RemainingWindow(native, "5h", captured, TimeSpan.FromHours(5));
-        var weekly = RemainingWindow(native, "weekly", captured, TimeSpan.FromDays(7));
-        var secondaryFive = RemainingWindow(thirdParty, "5h", captured, TimeSpan.FromHours(5));
-        var secondaryWeekly = RemainingWindow(thirdParty, "weekly", captured, TimeSpan.FromDays(7));
+        var five = candidates.GetValueOrDefault("gemini/5h");
+        var weekly = candidates.GetValueOrDefault("gemini/weekly");
+        var secondaryFive = candidates.GetValueOrDefault("3p/5h");
+        var secondaryWeekly = candidates.GetValueOrDefault("3p/weekly");
         var state = QuotaState("已登录", five, weekly, secondaryFive, secondaryWeekly);
         return new(
             "Gemini", "已登录", running, sessions, state, StateDetail(state),
@@ -268,7 +319,6 @@ public sealed class QuotaScanner(AppPaths paths)
         return new((int)Math.Round(used.Value), Epoch(window.DoubleOrNull("resets_at")), captured, span);
     }
 
-    private static JsonElement? FindObject(JsonElement root, string requiredProperty) => JsonSupport.FindObjectWithProperty(root, requiredProperty);
     private static DateTimeOffset? Epoch(double? value) => value is > 0 ? DateTimeOffset.FromUnixTimeMilliseconds((long)(value.Value * 1000)) : null;
 
     private static bool TryParseJson(string line, out JsonDocument document)
@@ -283,20 +333,20 @@ public sealed class QuotaScanner(AppPaths paths)
         catch { return []; }
     }
 
-    private static CodexBucket? ReadCodexTail(string path, DateTime lastWrite)
+    private static CodexParsed ReadCodexTail(string path, DateTime lastWrite)
     {
         const int maxBytes = 2 * 1024 * 1024;
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var length = stream.Length;
         var count = (int)Math.Min(length, maxBytes);
-        if (count == 0) return null;
+        if (count == 0) return new();
         var start = length - count;
         stream.Position = start;
         var buffer = ArrayPool<byte>.Shared.Rent(count);
         try
         {
             stream.ReadExactly(buffer.AsSpan(0, count));
-            CodexBucket? newest = null;
+            var newest = new CodexParsed();
             // Keep StreamReader's BOM detection for non-UTF-8 logs.
             var bytes = buffer.AsSpan(0, count);
             if (bytes.Length >= 2 && ((bytes[0] == 0xff && bytes[1] == 0xfe) || (bytes[0] == 0xfe && bytes[1] == 0xff)) ||
@@ -305,14 +355,14 @@ public sealed class QuotaScanner(AppPaths paths)
                 using var textStream = new MemoryStream(buffer, 0, count, writable: false);
                 using var reader = new StreamReader(textStream, Encoding.UTF8, true);
                 if (start > 0) _ = reader.ReadLine();
-                while (reader.ReadLine() is { } line) ReadCodexLine(line, lastWrite, ref newest);
+                while (reader.ReadLine() is { } line) ReadCodexLine(line, lastWrite, newest);
                 return newest;
             }
             var offset = 0;
             if (start > 0)
             {
                 var newline = bytes.IndexOfAny((byte)'\n', (byte)'\r');
-                if (newline < 0) return null;
+                if (newline < 0) return newest;
                 offset = newline + 1;
             }
             else if (bytes.StartsWith("\uFEFF"u8)) offset = 3;
@@ -321,8 +371,8 @@ public sealed class QuotaScanner(AppPaths paths)
                 var remaining = bytes[offset..];
                 var newline = remaining.IndexOfAny((byte)'\n', (byte)'\r');
                 var line = newline < 0 ? remaining : remaining[..newline];
-                if (line.IndexOf("used_percent"u8) >= 0)
-                    ReadCodexLine(Encoding.UTF8.GetString(line), lastWrite, ref newest);
+                if (line.IndexOf("used_percent"u8) >= 0 || line.IndexOf("usage_limit_exceeded"u8) >= 0)
+                    ReadCodexLine(Encoding.UTF8.GetString(line), lastWrite, newest);
                 if (newline < 0) break;
                 offset += newline + 1;
             }
@@ -331,26 +381,77 @@ public sealed class QuotaScanner(AppPaths paths)
         finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
     }
 
-    private static void ReadCodexLine(string line, DateTime lastWrite, ref CodexBucket? newest)
+    private static void ReadCodexLine(string line, DateTime lastWrite, CodexParsed parsed)
     {
-        if (!line.Contains("used_percent", StringComparison.Ordinal) || !TryParseJson(line, out var document)) return;
+        if ((!line.Contains("used_percent", StringComparison.Ordinal) && !line.Contains("usage_limit_exceeded", StringComparison.Ordinal)) || !TryParseJson(line, out var document)) return;
         using (document)
         {
-            var rate = FindObject(document.RootElement, "primary");
-            if (rate is null) return;
-            var id = rate.Value.StringOrEmpty("limit_id");
-            if (id.Length > 0 && !id.Equals("codex", StringComparison.OrdinalIgnoreCase)) return;
             var captured = Formatting.ParseDate(document.RootElement.StringOrEmpty("timestamp")) ?? new DateTimeOffset(lastWrite, TimeSpan.Zero);
-            if (newest is not null && newest.Captured >= captured) return;
-            var five = CodexWindow(rate.Value, "primary", captured);
-            var weekly = CodexWindow(rate.Value, "secondary", captured);
-            if (five?.Window >= TimeSpan.FromDays(1)) (five, weekly) = (weekly, five);
-            if (weekly?.Window < TimeSpan.FromDays(1)) (five, weekly) = (weekly, five);
-            newest = new(captured, five, weekly, rate.Value.StringOrEmpty("plan_type"));
+            if (FindLimitMessage(document.RootElement) is { } message && (parsed.Hit is null || captured > parsed.Hit.At))
+                parsed.Hit = new(captured, ParseLimitReset(message));
+            var newest = parsed.Buckets;
+            foreach (var rate in CodexRates(document.RootElement))
+            {
+                var id = rate.StringOrEmpty("limit_id");
+                if (id.Length == 0) id = "codex";
+                if (newest.TryGetValue(id, out var previous) && previous.Captured >= captured) continue;
+                var five = CodexWindow(rate, "primary", captured);
+                var weekly = CodexWindow(rate, "secondary", captured);
+                if (five is null && weekly is null) continue;
+                if (five?.Window >= TimeSpan.FromDays(1)) (five, weekly) = (weekly, five);
+                if (weekly?.Window < TimeSpan.FromDays(1)) (five, weekly) = (weekly, five);
+                newest[id] = new(captured, five, weekly, rate.StringOrEmpty("plan_type"), rate.StringOrEmpty("limit_name"));
+            }
         }
     }
 
+    private static IEnumerable<JsonElement> CodexRates(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("primary", out _) || element.TryGetProperty("secondary", out _))
+            {
+                yield return element;
+                yield break;
+            }
+            foreach (var property in element.EnumerateObject())
+                foreach (var rate in CodexRates(property.Value)) yield return rate;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (var item in element.EnumerateArray())
+                foreach (var rate in CodexRates(item)) yield return rate;
+    }
+
     private readonly record struct CodexFileStamp(long Length, long LastWriteTicks, long CreationTicks);
-    private sealed record CodexFileQuota(CodexFileStamp Stamp, CodexBucket? Bucket);
-    private sealed record CodexBucket(DateTimeOffset Captured, QuotaWindow? Five, QuotaWindow? Weekly, string Plan);
+    private sealed record CodexFileQuota(CodexFileStamp Stamp, CodexParsed Parsed);
+    private sealed record CodexBucket(DateTimeOffset Captured, QuotaWindow? Five, QuotaWindow? Weekly, string Plan, string Name);
+    private sealed record CodexLimitHit(DateTimeOffset At, DateTimeOffset? Reset);
+    private sealed class CodexParsed
+    {
+        public Dictionary<string, CodexBucket> Buckets { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public CodexLimitHit? Hit { get; set; }
+    }
+    private static string? FindLimitMessage(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.StringOrEmpty("codex_error_info") == "usage_limit_exceeded") return element.StringOrEmpty("message");
+            foreach (var property in element.EnumerateObject())
+                if (FindLimitMessage(property.Value) is { } message) return message;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (var item in element.EnumerateArray()) if (FindLimitMessage(item) is { } message) return message;
+        return null;
+    }
+    private static DateTimeOffset? ParseLimitReset(string message)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(message,
+            @"try again (?:at|on)\s+([A-Za-z]{3,})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})[,\s]+(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(50));
+        if (!match.Success) return null;
+        var g = match.Groups;
+        var text = $"{g[1].Value[..3]} {g[2].Value}, {g[3].Value} {g[4].Value}:{g[5].Value} {g[6].Value.ToUpperInvariant()}M";
+        return DateTimeOffset.TryParseExact(text, "MMM d, yyyy h:mm tt", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeLocal, out var reset) ? reset : null;
+    }
 }
