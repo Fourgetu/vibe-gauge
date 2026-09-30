@@ -210,9 +210,13 @@ public sealed class CodexAccountQuotaTests : IDisposable
             [platform], UsageSummary.Empty, ApiUsageSummary.Empty);
         var policy = new AttentionPolicy(Paths);
         var options = new FeaturePreferences { QuotaNotifications = true };
+        var low = platform with { Weekly = platform.Weekly! with { UsedPercent = 70 } };
+        Assert.Empty(policy.Evaluate(snapshot with { Platforms = [low] }, options));
         Assert.Single(policy.Evaluate(snapshot, options));
         Assert.Empty(policy.Evaluate(snapshot, options));
-        Assert.Single(new AttentionPolicy(Paths).Evaluate(snapshot with { Platforms = [platform with { QuotaScope = "second" }] }, options));
+        Assert.Empty(policy.Evaluate(snapshot with { Platforms = [low with { QuotaScope = "second" }] }, options));
+        Assert.Single(policy.Evaluate(snapshot with { Platforms = [platform with { QuotaScope = "second" }] }, options));
+        Assert.Empty(new AttentionPolicy(Paths).Evaluate(snapshot, options));
     }
 
     public void Dispose() { if (Directory.Exists(home)) Directory.Delete(home, true); }

@@ -31,6 +31,8 @@ public sealed class ThemePalette : INotifyPropertyChanged
             ["TrackBrush"] = ("#FF515158", "#FFCCD1D9"),
             ["AccentBrush"] = ("#FF22A8FF", "#FF0069B4"),
             ["LocalBrush"] = ("#FFE26BFF", "#FF9936BB"),
+            ["StatsPinkBrush"] = ("#FFFF739F", "#FFB12B58"),
+            ["StatsTealBrush"] = ("#FF3DCDD0", "#FF007F83"),
             ["LocalDimBrush"] = ("#28D946EF", "#20A840C4"),
             ["TooltipBackgroundBrush"] = ("#FF24262E", "#FFFAFBFE"),
             ["TooltipTextBrush"] = ("#FFF5F7FB", "#FF1D2633"),

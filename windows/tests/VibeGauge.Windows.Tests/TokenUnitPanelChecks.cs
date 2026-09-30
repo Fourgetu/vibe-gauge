@@ -72,7 +72,7 @@ internal static class TokenUnitPanelChecks
                     Layout(window);
                     Assert.Equal(day, window.StatisticsView.SelectedDate);
                     Assert.True(window.StatisticsView.IsHourly);
-                    Assert.Contains("总 Token " + Formatting.Tokens(1234000, unit), Texts(window.StatisticsView));
+                    Assert.Contains(Formatting.Tokens(1234000, unit), Texts(window.StatisticsView));
                     Assert.Equal(1234000, window.StatisticsView.CurrentPeriod.TotalTokens);
                     vm.SelectTab(0);
                     Layout(window);

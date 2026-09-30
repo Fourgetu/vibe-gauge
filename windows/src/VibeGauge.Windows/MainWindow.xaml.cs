@@ -56,6 +56,7 @@ public partial class MainWindow : Window
                 e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
                 UpdateSelectedPanel();
         };
+        IsVisibleChanged += (_, _) => { if (IsVisible) UpdateSelectedPanel(); };
         if (autoHide) Deactivated += (_, _) =>
         {
             if (!pinned && !moving && !edgeHide.IsDocked && !IsMouseOver) Hide();
@@ -64,6 +65,9 @@ public partial class MainWindow : Window
 
     private void UpdateSelectedPanel()
     {
+        // Collection and tray monitoring continue while hidden; rebuild the
+        // selected detail view from the latest snapshot when the window reopens.
+        if (!IsVisible) return;
         if ((viewModel.CurrentSnapshot ?? latestSnapshot) is not { } snapshot) return;
         if (viewModel.SelectedProviderName is { } selected)
         {

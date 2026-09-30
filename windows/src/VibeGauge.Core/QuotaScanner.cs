@@ -70,23 +70,38 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
         }
         if (tier == "未登录" && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY"))) tier = "API Key";
 
-        var quotaPath = paths.ResolveOwnDataFile("claude-usage.json");
-        if (!File.Exists(quotaPath)) quotaPath = Path.Combine(paths.ClaudeRoot, "claude-usage.json");
-        using var quota = JsonSupport.ReadDocument(quotaPath);
+        var candidates = new[] { paths.LocalDataRoot, paths.LegacyDataRoot, paths.ClaudeRoot }
+            .Select(dir => Path.Combine(dir, "claude-usage.json")).Distinct().ToArray();
+        JsonDocument? selected = null;
+        DateTimeOffset? captured = null;
+        foreach (var file in candidates)
+        {
+            var doc = JsonSupport.ReadDocument(file);
+            if (doc is null) continue;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.EnumerateObject().Any(p =>
+                (p.Name.StartsWith("five_hour") || p.Name.StartsWith("seven_day")) &&
+                Window(p.Value, null, TimeSpan.FromHours(5), "used_percentage", "resets_at") is not null))
+            { doc.Dispose(); continue; }
+            DateTimeOffset at;
+            try { at = Epoch(doc.RootElement.DoubleOrNull("_captured_at")) ?? new DateTimeOffset(File.GetLastWriteTimeUtc(file)); }
+            catch (IOException) { doc.Dispose(); continue; }
+            if (selected is null || at > captured) { selected?.Dispose(); selected = doc; captured = at; }
+            else doc.Dispose();
+        }
+        using var quota = selected;
         if (quota is null)
         {
-            var state = File.Exists(quotaPath) ? ProviderDataState.ReadFailed :
+            var state = candidates.Any(File.Exists) ? ProviderDataState.ReadFailed :
                 tier == "未登录" ? ProviderDataState.NotSignedIn : ProviderDataState.NoQuota;
             return new("Claude", tier, running, sessions, state, StateDetail(state));
         }
 
         var root = quota.RootElement;
-        var captured = Epoch(root.DoubleOrNull("_captured_at"));
         var five = Window(root, "five_hour", captured, TimeSpan.FromHours(5), "used_percentage", "resets_at");
         var weekly = Window(root, "seven_day", captured, TimeSpan.FromDays(7), "used_percentage", "resets_at");
         var secondaryName = "";
         QuotaWindow? secondaryFive = null, secondaryWeek = null;
-        foreach (var property in root.EnumerateObject())
+        foreach (var property in root.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
         {
             if (property.Name is "five_hour" or "seven_day" or "_captured_at" || property.Value.ValueKind != JsonValueKind.Object) continue;
             var isFive = property.Name.StartsWith("five_hour_", StringComparison.OrdinalIgnoreCase);
@@ -95,8 +110,9 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
             var name = property.Name[(property.Name.IndexOf('_', property.Name.IndexOf('_') + 1) + 1)..];
             name = string.IsNullOrEmpty(name) ? "Extra" : char.ToUpperInvariant(name[0]) + name[1..];
             if (secondaryName.Length > 0 && !secondaryName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
-            secondaryName = name;
             var window = Window(property.Value, captured, isFive ? TimeSpan.FromHours(5) : TimeSpan.FromDays(7), "used_percentage", "resets_at");
+            if (window is null) continue;
+            secondaryName = name;
             if (isFive) secondaryFive = window; else secondaryWeek = window;
         }
         var dataState = QuotaState(tier, five, weekly, secondaryFive, secondaryWeek);

@@ -22,30 +22,45 @@ public static class OfficialQuotaParser
     public static PlatformStatus Provider(string host, string title, JsonElement root, DateTimeOffset now)
     {
         var status = new PlatformStatus(title, "官方接口", false, 0, ProviderDataState.Available, "官方回报");
+        if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty("error", out _) ||
+            root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
+            return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口返回业务错误" };
         if (host is "open.bigmodel.cn" or "api.z.ai")
         {
+            if (root.StringOrEmpty("msg").Replace(" ", "").Contains("不存在CodingPlan", StringComparison.OrdinalIgnoreCase))
+                return status with { DataState = ProviderDataState.NoQuota, Detail = "此 key 没有 Coding Plan 订阅" };
+            if (Number(root, "code") != 200)
+                return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口返回业务错误" };
             if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
-                return root.StringOrEmpty("msg").Replace(" ", "").Contains("不存在CodingPlan", StringComparison.OrdinalIgnoreCase)
-                    ? status with { DataState = ProviderDataState.NoQuota, Detail = "此 key 没有 Coding Plan 订阅" }
-                    : status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" };
+                return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" };
             var limits = data.TryGetProperty("limits", out var arr) && arr.ValueKind == JsonValueKind.Array
                 ? arr.EnumerateArray().Where(x => Number(x, "percentage") is not null).OrderBy(x => Number(x, "nextResetTime") ?? 0).ToArray() : [];
-            if (limits.Length == 0) return status with { DataState = ProviderDataState.NoQuota, Detail = "未检测到 Coding Plan 订阅" };
+            if (limits.Length == 0) return arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() == 0
+                ? status with { DataState = ProviderDataState.NoQuota, Detail = "未检测到 Coding Plan 订阅" }
+                : status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" };
             QuotaWindow? Read(JsonElement value, int hours) => Window(Number(value, "percentage"), Epoch(Number(value, "nextResetTime")), now, hours);
             return status with { FiveHour = limits.Length > 1 ? Read(limits[0], 5) : null, Weekly = Read(limits[^1], 168) };
         }
         if (host == "api.minimaxi.com")
         {
-            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object) return status with { DataState = ProviderDataState.NoQuota, Detail = "未检测到 Token Plan" };
+            if (root.TryGetProperty("base_resp", out var response) && Number(response, "status_code") != 0 ||
+                root.TryGetProperty("code", out _) && Number(root, "code") is not (0 or 200))
+                return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口返回业务错误" };
+            if (!root.TryGetProperty("data", out var data)) return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" };
+            if (data.ValueKind == JsonValueKind.Null && (Number(root, "code") is 0 or 200 || root.TryGetProperty("base_resp", out var ok) && Number(ok, "status_code") == 0))
+                return status with { DataState = ProviderDataState.NoQuota, Detail = "未检测到 Token Plan" };
+            if (data.ValueKind != JsonValueKind.Object) return status with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" };
             var total = Number(data, "current_interval_total_count");
             var week = Number(data, "current_weekly_total_count");
-            return status with
+            var parsed = status with
             {
                 Tier = "Token Plan",
                 FiveHour = Window(total > 0 ? Number(data, "current_interval_usage_count") / total * 100 : null,
                     Number(data, "remains_time") is >= 0 and < 3.2e10 and var remaining ? now.AddMilliseconds(remaining) : null, now, 5),
                 Weekly = Window(week > 0 ? Number(data, "current_weekly_usage_count") / week * 100 : null, Epoch(Number(data, "weekly_end_time")), now, 168)
             };
+            return parsed.FiveHour is null && parsed.Weekly is null
+                ? parsed with { DataState = ProviderDataState.ReadFailed, Detail = "官方接口未返回有效额度" } : parsed;
         }
         double? balance = null;
         var currency = host == "openrouter.ai" ? "USD" : "CNY";
@@ -53,7 +68,7 @@ public static class OfficialQuotaParser
         { balance = Number(infos[0], "total_balance"); currency = infos[0].StringOrEmpty("currency"); }
         else if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
             balance = Number(data, host == "openrouter.ai" ? "limit_remaining" : "available_balance");
-        return status with { Tier = "API 余额", Detail = balance is { } amount ? $"{(host == "openrouter.ai" ? "Key 剩余额度" : "余额")} {amount:0.00} {currency}" : "官方接口未返回可用余额" };
+        return status with { DataState = balance is null ? ProviderDataState.ReadFailed : ProviderDataState.Available, Tier = "API 余额", Detail = balance is { } amount ? $"{(host == "openrouter.ai" ? "Key 剩余额度" : "余额")} {amount:0.00} {currency}" : "官方接口未返回可用余额" };
     }
 
     public static PlatformStatus Cli(string title, JsonElement root, DateTimeOffset now)

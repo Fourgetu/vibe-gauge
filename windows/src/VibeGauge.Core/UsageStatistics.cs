@@ -18,6 +18,19 @@ public sealed record UsagePeriod(DateOnly Start, DateOnly End, int Calls, int Ac
     long Context, long Output, long CacheRead, long CacheWrite, long Thinking, IReadOnlyList<ModelMix> Models)
 {
     [JsonIgnore] public long TotalTokens => Context + Output;
+    [JsonIgnore] public long NewInput => Math.Max(0, Context - CacheRead - CacheWrite);
+    [JsonIgnore] public long CacheTotal => CacheRead + CacheWrite;
+    [JsonIgnore] public IReadOnlyList<UsageSourceSummary> Sources => Models.GroupBy(x => x.Source, StringComparer.Ordinal)
+        .Select(g => new UsageSourceSummary(g.Key, UsageDataState.Available, g.Sum(x => x.Calls),
+            g.Sum(x => x.Context), g.Sum(x => x.CacheRead), g.Sum(x => x.CacheWrite), g.Sum(x => x.Output), g.Sum(x => x.Thinking), ""))
+        .OrderByDescending(x => x.TotalTokens).ThenBy(x => x.Name, StringComparer.Ordinal).ToArray();
+    // The presentation merges identical model names across tools, as upstream does.
+    // Keep Models unchanged for source-specific prices and existing consumers.
+    [JsonIgnore] public IReadOnlyList<ModelMix> ModelComposition => Models.GroupBy(x => x.Model, StringComparer.Ordinal)
+        .Select(g => new ModelMix(string.Join(" / ", g.Select(x => x.Source).Distinct().Order(StringComparer.Ordinal)), g.Key,
+            g.Sum(x => x.Calls), g.Sum(x => x.Context), g.Sum(x => x.Output), g.Sum(x => x.CacheRead),
+            g.Sum(x => x.CacheWrite), g.Sum(x => x.Thinking)))
+        .OrderByDescending(x => x.TotalTokens).ThenBy(x => x.Model, StringComparer.Ordinal).ToArray();
     public double? CacheHitRate => Context > 0 ? CacheRead * 100d / Context : null;
 }
 public sealed record UsageStatistics(
@@ -63,7 +76,7 @@ public sealed record UsageStatistics(
                 g.Sum(x => x.Usage.CacheWrite), g.Sum(x => x.Usage.Thinking)))
             .OrderByDescending(x => x.Context).ThenByDescending(x => x.Output)
             .ThenBy(x => x.Source, StringComparer.Ordinal).ThenBy(x => x.Model, StringComparer.Ordinal).ToArray();
-        return new(start, end, days.Sum(x => x.Calls), days.Count(x => x.Calls > 0),
+        return new(start, end, days.Sum(x => x.Calls), days.Count(x => x.TotalTokens > 0),
             days.Sum(x => x.Context), days.Sum(x => x.Output), days.Sum(x => x.CacheRead),
             days.Sum(x => x.CacheWrite), days.Sum(x => x.Thinking), models);
     }

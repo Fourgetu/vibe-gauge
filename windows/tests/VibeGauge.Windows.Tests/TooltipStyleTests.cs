@@ -34,12 +34,15 @@ public sealed class TooltipStyleTests
                         Assert.True(tooltip.ActualHeight >= 30);
                     }
                 StatisticsPanelChecks.Verify();
+                StatisticsSummaryChecks.Verify();
                 UsagePanelChecks.Verify();
                 ProviderCardChecks.Verify();
                 TokenUnitPanelChecks.Verify();
                 ClientVisibilityPanelChecks.Verify();
                 ProviderDetailPanelChecks.Verify();
                 FeaturePanelChecks.Verify();
+                ReauditPanelChecks.Verify();
+                MemoryPanelChecks.Verify();
                 TopEdgeAutoHideChecks.Verify();
             }
             catch (Exception error) { failure = error; }

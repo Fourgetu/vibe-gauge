@@ -49,11 +49,11 @@ public sealed class TrayIconManager : IDisposable
         foreach (var message in attention.Evaluate(snapshot, FeaturePreferences.Load(viewModel.Paths)))
             icon.ShowBalloonTip(7000, "VibeGauge", UiLocalization.Text(message), Forms.ToolTipIcon.Warning);
         if (updates.Scan() is { } release && updates.TakeNotification(release))
-            icon.ShowBalloonTip(7000, "VibeGauge · Windows 新版", $"{release.Version} 已发布，可在系统页打开正式发布页下载。不会自动安装。", Forms.ToolTipIcon.Info);
+            icon.ShowBalloonTip(7000, UiLocalization.Text("VibeGauge · 软件更新"), UiLocalization.Text($"{release.Version} 已发布，可在系统页打开正式发布页下载。不会自动安装。"), Forms.ToolTipIcon.Info);
         if (snapshot.Statistics is { } statistics)
             foreach (var message in alerts.Evaluate(snapshot.Platforms, null, snapshot.CapturedAt,
                 ForecastNotificationsEnabled(), statistics.ProfileFor))
-                icon.ShowBalloonTip(7000, "VibeGauge · 额度预测", message, Forms.ToolTipIcon.Warning);
+                icon.ShowBalloonTip(7000, UiLocalization.Text("VibeGauge · 额度预测"), UiLocalization.Text(message), Forms.ToolTipIcon.Warning);
     }
 
     private static bool ForecastNotificationsEnabled()

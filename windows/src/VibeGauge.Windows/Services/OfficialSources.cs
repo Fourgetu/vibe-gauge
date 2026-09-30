@@ -127,12 +127,33 @@ public sealed class OfficialSources(AppPaths paths)
             if (text.Length < 512 * 1024) text.Append(chunk, 0, Math.Min(count, 512 * 1024 - text.Length));
         return text.ToString();
     }
-    public static string? FindExecutable(AppPaths paths, string name)
+    public static string? FindExecutable(AppPaths paths, string name, IEnumerable<string>? searchDirectories = null)
     {
-        var directories = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+        var directories = searchDirectories ?? (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
             .Concat([Path.Combine(paths.Home, ".local", "bin"), Path.Combine(paths.Home, ".volta", "bin"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm")]);
         // Only native executables are launched; batch wrappers remain an explicit user terminal action.
-        return directories.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => Path.Combine(x.Trim('"'), name + ".exe")).FirstOrDefault(File.Exists);
+        foreach (var directory in directories.Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            var root = directory.Trim('"');
+            var native = Path.Combine(root, name + ".exe");
+            if (File.Exists(native)) return native;
+            if (name != "arkcli") continue;
+            var package = Path.Combine(root, "node_modules", "@volcengine", "ark-cli");
+            JsonDocument? manifest;
+            try { manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(package, "package.json"))); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { continue; }
+            using var manifestLifetime = manifest;
+            if (manifest?.RootElement.ValueKind != JsonValueKind.Object ||
+                (!manifest.RootElement.TryGetProperty("name", out var packageName) || packageName.ValueKind != JsonValueKind.String || packageName.GetString() != "@volcengine/ark-cli") ||
+                !manifest.RootElement.TryGetProperty("bin", out var bin) || bin.ValueKind != JsonValueKind.Object ||
+                (!bin.TryGetProperty("arkcli", out var entry) || entry.ValueKind != JsonValueKind.String || entry.GetString() != "scripts/run.js")) continue;
+            var arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture;
+            if (arch is not (System.Runtime.InteropServices.Architecture.X64 or System.Runtime.InteropServices.Architecture.Arm64)) continue;
+            native = Path.Combine(package, "bin", arch == System.Runtime.InteropServices.Architecture.Arm64
+                ? "arkcli-windows-arm64.exe" : "arkcli-windows-amd64.exe");
+            if (File.Exists(native)) return native;
+        }
+        return null;
     }
 }

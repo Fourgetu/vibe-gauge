@@ -7,69 +7,91 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-public sealed class NetworkDiagnostics(AppPaths paths)
+public sealed class NetworkDiagnostics
 {
+    internal static readonly (string Provider, string Host)[] Targets =
+        [("Claude", "api.anthropic.com"), ("ChatGPT / Codex", "chatgpt.com"), ("OpenAI API", "api.openai.com"), ("Cloudflare", "www.cloudflare.com")];
+    private readonly AppPaths paths;
+    private readonly Func<Task<NetworkDiagnosticsReport>> collect;
+    private readonly object sync = new();
+    private readonly Dictionary<string, EgressInfo> baseline;
+    private readonly string baselineFile;
     private NetworkDiagnosticsReport? cached;
     private Task<NetworkDiagnosticsReport>? pending;
     private DateTimeOffset lastAttempt;
+    public NetworkDiagnostics(AppPaths paths, Func<Task<NetworkDiagnosticsReport>>? collect = null)
+    {
+        this.paths = paths;
+        this.collect = collect ?? CollectAsync;
+        baselineFile = Path.Combine(paths.LocalDataRoot, "egress-baseline.json");
+        try { baseline = JsonSerializer.Deserialize<Dictionary<string, EgressInfo>>(File.ReadAllText(baselineFile)) ?? []; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { baseline = []; }
+    }
     public NetworkDiagnosticsReport? Scan()
     {
-        if (pending is { IsCompleted: true })
+        lock (sync)
         {
-            if (pending.IsCompletedSuccessfully) cached = pending.Result;
-            pending = null;
+            if (FeaturePreferences.Load(paths).NetworkDiagnostics && (pending is null || pending.IsCompleted) &&
+                DateTimeOffset.Now - lastAttempt >= TimeSpan.FromMinutes(5)) _ = RefreshAsync();
+            return cached;
         }
-        if (FeaturePreferences.Load(paths).NetworkDiagnostics && pending is null && DateTimeOffset.Now - lastAttempt >= TimeSpan.FromMinutes(5))
-        { lastAttempt = DateTimeOffset.Now; pending = RefreshAsync(); }
-        return cached;
     }
-    public async Task<NetworkDiagnosticsReport> RefreshAsync()
+    public Task<NetworkDiagnosticsReport> RefreshAsync()
     {
-        var targets = new[] { ("Claude", "api.anthropic.com"), ("Codex", "chatgpt.com"), ("Gemini", "generativelanguage.googleapis.com"), ("Cloudflare", "www.cloudflare.com") };
+        lock (sync)
+        {
+            if (pending is { IsCompleted: false }) return pending;
+            lastAttempt = DateTimeOffset.Now;
+            return pending = RefreshCoreAsync();
+        }
+    }
+    private async Task<NetworkDiagnosticsReport> RefreshCoreAsync()
+    {
+        var report = await collect();
+        lock (sync)
+        {
+            var changes = new List<string>();
+            foreach (var next in report.Exits.Where(x => x.Error.Length == 0 && IPAddress.TryParse(x.Ip, out _)))
+            {
+                if (baseline.TryGetValue(next.Host, out var old) && old is not null && (old.Ip != next.Ip || old.Region != next.Region))
+                    changes.Add($"{next.Provider} 出口变化：{old.Ip} ({old.Region}) → {next.Ip} ({next.Region})");
+                baseline[next.Host] = next;
+            }
+            try
+            {
+                Directory.CreateDirectory(paths.LocalDataRoot);
+                File.WriteAllText(baselineFile + ".tmp", JsonSerializer.Serialize(baseline));
+                File.Move(baselineFile + ".tmp", baselineFile, true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { changes.Add("出口基准保存失败，重启后可能无法比较"); }
+            return cached = report with { Changes = changes };
+        }
+    }
+    private async Task<NetworkDiagnosticsReport> CollectAsync()
+    {
         using var client = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, ConnectTimeout = TimeSpan.FromSeconds(4) })
             { Timeout = TimeSpan.FromSeconds(7), MaxResponseContentBufferSize = 64 * 1024 };
-        var probes = targets.Select(async t =>
+        var probes = Targets.Select(async t =>
         {
+            var watch = Stopwatch.StartNew();
             try
             {
-                var text = await client.GetStringAsync($"https://{t.Item2}/cdn-cgi/trace");
+                var text = await client.GetStringAsync($"https://{t.Host}/cdn-cgi/trace");
                 var fields = text.Split('\n').Where(x => x.Contains('=')).Select(x => x.Split('=', 2)).GroupBy(x => x[0]).ToDictionary(x => x.Key, x => x.First()[1].Trim());
                 var ip = fields.GetValueOrDefault("ip", "");
-                return IPAddress.TryParse(ip, out _) ? new EgressInfo(t.Item1, t.Item2, ip, fields.GetValueOrDefault("loc", ""), fields.GetValueOrDefault("colo", ""), "") :
-                    new EgressInfo(t.Item1, t.Item2, "", "", "", "未回报有效 trace（不等于无法使用 API）");
+                return IPAddress.TryParse(ip, out _) ? new EgressInfo(t.Provider, t.Host, ip, fields.GetValueOrDefault("loc", ""), fields.GetValueOrDefault("colo", ""), "", watch.ElapsedMilliseconds, DateTimeOffset.Now) :
+                    new EgressInfo(t.Provider, t.Host, "", "", "", "未回报有效 trace（不等于无法使用 API）", watch.ElapsedMilliseconds, DateTimeOffset.Now);
             }
-            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return new EgressInfo(t.Item1, t.Item2, "", "", "", "检测失败 / 站点不支持 trace"); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return new EgressInfo(t.Provider, t.Host, "", "", "", "检测失败 / 站点不支持 trace", watch.ElapsedMilliseconds, DateTimeOffset.Now); }
         }).ToArray();
-        var proxy = ReadClashAsync();
+        var proxyTask = new ClashControllerClient(paths).ReadAsync();
         var local = LocalAsync();
         var ipv6 = NetworkMonitor.ProbeEgressAsync(true);
-        var dns = DnsAsync(targets.Select(x => x.Item2));
-        var exits = await Task.WhenAll(probes);
-        var changes = exits.Where(x => x.Ip.Length > 0).Select(x => (Next: x, Old: cached?.Exits.FirstOrDefault(p => p.Provider == x.Provider)))
-            .Where(x => x.Old is { Ip.Length: > 0 } && x.Old.Ip != x.Next.Ip)
-            .Select(x => $"{x.Next.Provider} 出口变化：{x.Old!.Ip} → {x.Next.Ip}").ToArray();
-        return cached = new(DateTimeOffset.Now, exits, await proxy, await local, changes, await dns, await ipv6);
-    }
-    private async Task<IReadOnlyList<string>> ReadClashAsync()
-    {
-        var endpoint = FeaturePreferences.Load(paths).ClashController;
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != "http" ||
-            !IPAddress.TryParse(uri.Host, out var ip) || !IPAddress.IsLoopback(ip) || uri.UserInfo.Length > 0 || uri.AbsolutePath != "/" || uri.Query.Length > 0)
-            return ["Clash 控制器必须为本机 http://127.0.0.1:端口；不会向远程地址发送密钥"];
-        using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
-            { Timeout = TimeSpan.FromSeconds(2), MaxResponseContentBufferSize = 1024 * 1024 };
-        var secret = Environment.GetEnvironmentVariable("VIBEGAUGE_CLASH_SECRET");
-        if (!string.IsNullOrWhiteSpace(secret)) client.DefaultRequestHeaders.Authorization = new("Bearer", secret);
-        var rows = new List<string>();
-        foreach (var path in new[] { "proxies", "connections" })
-            try
-            {
-                using var doc = JsonDocument.Parse(await client.GetStringAsync(new Uri(uri, path)));
-                rows.AddRange(ParseClash(doc.RootElement));
-            }
-            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
-            { rows.Add(path + " 读取失败（只读；需要认证时设置 VIBEGAUGE_CLASH_SECRET）"); }
-        return rows;
+        var dns = DnsAsync(Targets.Select(x => x.Host));
+        var exits = (await Task.WhenAll(probes)).ToList();
+        var proxy = await proxyTask;
+        exits.Add(ClashControllerClient.GeminiExit(proxy));
+        return new(DateTimeOffset.Now, exits, proxy.Rows, await local, [], await dns, await ipv6, proxy.Connections);
     }
     internal static IReadOnlyList<string> ParseClash(JsonElement root)
     {
@@ -77,18 +99,32 @@ public sealed class NetworkDiagnostics(AppPaths paths)
         var rows = new List<string>();
         if (root.TryGetProperty("proxies", out var proxies) && proxies.ValueKind == JsonValueKind.Object)
             foreach (var p in proxies.EnumerateObject().Take(100))
-                if (p.Value.TryGetProperty("now", out var selected) && selected.ValueKind == JsonValueKind.String)
+                if (p.Value.ValueKind == JsonValueKind.Object && p.Value.TryGetProperty("now", out var selected) && selected.ValueKind == JsonValueKind.String)
                     rows.Add($"代理组 {p.Name} → {selected.GetString()}");
-        if (root.TryGetProperty("connections", out var connections) && connections.ValueKind == JsonValueKind.Array)
-            foreach (var c in connections.EnumerateArray().Take(200))
-            {
-                if (!c.TryGetProperty("metadata", out var m)) continue;
-                var host = m.TryGetProperty("host", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString()! : "";
-                if (!new[] { "anthropic.com", "openai.com", "chatgpt.com", "googleapis.com", "generativelanguage.google.com" }.Any(x => host == x || host.EndsWith("." + x, StringComparison.OrdinalIgnoreCase))) continue;
-                var chain = c.TryGetProperty("chains", out var chains) && chains.ValueKind == JsonValueKind.Array
-                    ? string.Join(" → ", chains.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString())) : "未回报链路";
-                rows.Add($"{host} · {chain}");
-            }
+        rows.AddRange(ParseConnections(root).Select(x => $"{x.Host} · {(x.Chain.Length > 0 ? x.Chain : "未回报链路")}"));
+        return rows;
+    }
+    internal static IReadOnlyList<ProxyConnection> ParseConnections(JsonElement root, string? sourceIp = null)
+    {
+        var rows = new List<ProxyConnection>();
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("connections", out var connections) || connections.ValueKind != JsonValueKind.Array) return rows;
+        foreach (var c in connections.EnumerateArray())
+        {
+            if (c.ValueKind != JsonValueKind.Object) continue;
+            var metadata = c.TryGetProperty("metadata", out var m) && m.ValueKind == JsonValueKind.Object ? m : c;
+            if (!string.IsNullOrEmpty(sourceIp) && (!metadata.TryGetProperty("sourceIP", out var source) || source.ValueKind != JsonValueKind.String ||
+                !IPAddress.TryParse(source.GetString(), out var sourceAddress) || !IPAddress.TryParse(sourceIp, out var filter) || !sourceAddress.Equals(filter))) continue;
+            var host = metadata.TryGetProperty("host", out var h) && h.ValueKind == JsonValueKind.String ? h.GetString()! :
+                c.TryGetProperty("host", out h) && h.ValueKind == JsonValueKind.String ? h.GetString()! : "";
+            host = host.Trim().Trim('.').ToLowerInvariant();
+            bool Domain(string domain) => host.Equals(domain, StringComparison.OrdinalIgnoreCase) || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+            var provider = Domain("anthropic.com") || Domain("claude.ai") ? "Claude" : Domain("api.openai.com") ? "OpenAI API" : Domain("chatgpt.com") || Domain("openai.com") ? "ChatGPT / Codex" :
+                Domain("gemini.google.com") || Domain("googleapis.com") || Domain("generativelanguage.google.com") ? "Gemini" : "";
+            if (provider.Length == 0) continue;
+            var chain = c.TryGetProperty("chains", out var chains) && chains.ValueKind == JsonValueKind.Array
+                ? string.Join(" → ", chains.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString())) : "";
+            rows.Add(new(provider, host, chain));
+        }
         return rows;
     }
     private static async Task<string> DnsAsync(IEnumerable<string> hosts)

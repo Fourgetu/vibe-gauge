@@ -26,6 +26,8 @@
         <SolidColorBrush x:Key="TrackBrush" Color="{Binding [TrackBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="AccentBrush" Color="{Binding [AccentBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="LocalBrush" Color="{Binding [LocalBrush], Source={StaticResource ThemePalette}}" />
+        <SolidColorBrush x:Key="StatsPinkBrush" Color="{Binding [StatsPinkBrush], Source={StaticResource ThemePalette}}" />
+        <SolidColorBrush x:Key="StatsTealBrush" Color="{Binding [StatsTealBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="LocalDimBrush" Color="{Binding [LocalDimBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="TransparentBrush" Color="#00FFFFFF" />
         <SolidColorBrush x:Key="TooltipBackgroundBrush" Color="{Binding [TooltipBackgroundBrush], Source={StaticResource ThemePalette}}" />
@@ -321,6 +323,55 @@
                     </Grid>
                 </ControlTemplate>
             </Setter.Value></Setter>
+        </Style>
+
+        <Style x:Key="SettingsNavigationStyle" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="6">
+                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
+                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.72" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="SettingsSwitchStyle" TargetType="CheckBox">
+            <Setter Property="Width" Value="44" /><Setter Property="Height" Value="26" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+                <Grid Background="Transparent">
+                    <Border x:Name="Track" Height="24" CornerRadius="12" Background="{DynamicResource TrackBrush}">
+                        <Ellipse x:Name="Thumb" Width="18" Height="18" Margin="3" HorizontalAlignment="Left" Fill="{DynamicResource TextMutedBrush}" />
+                    </Border>
+                    <Border x:Name="Focus" CornerRadius="13" BorderThickness="1" BorderBrush="{DynamicResource TextPrimaryBrush}" Opacity="0" />
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Track" Property="Background" Value="{DynamicResource BorderStrongBrush}" /><Setter TargetName="Thumb" Property="Fill" Value="{DynamicResource TextPrimaryBrush}" /><Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right" /></Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Focus" Property="Opacity" Value="0.25" /></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Focus" Property="Opacity" Value="1" /></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="LanguageSegmentStyle" TargetType="RadioButton">
+            <Setter Property="Padding" Value="9,4" /><Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+                <Border x:Name="Surface" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource CardRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" /></Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource TextPrimaryBrush}" /><Setter TargetName="Surface" Property="BorderThickness" Value="1" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
         </Style>
 
         <Style x:Key="ToggleStyle" TargetType="CheckBox">

@@ -19,6 +19,7 @@ public sealed partial class UsageScanner
     private ScannerCache cache = new();
     private bool loaded;
     private bool cacheDirty;
+    private readonly Dictionary<string, InteractionRecord[]> sourceRecords = new(StringComparer.Ordinal);
 
     public UsageScanner(AppPaths paths)
     {
@@ -53,6 +54,7 @@ public sealed partial class UsageScanner
                     };
                     if (changed)
                     {
+                        sourceRecords.Remove(item.Source);
                         if (cache.Files.TryGetValue(item.Path, out var updated) && CanCompact(updated) && updated.Source != "Codex" &&
                             updated.Records.Values.Any(MayMatchCold)) coldDirty = true;
                         filesRead++;
@@ -62,6 +64,7 @@ public sealed partial class UsageScanner
                 }
                 catch
                 {
+                    sourceRecords.Remove(item.Source);
                     errors.Add(item.Source + " 部分记录无法读取，保留上次结果并等待重试");
                 }
             }
@@ -147,7 +150,7 @@ public sealed partial class UsageScanner
         var rewritten = tailChanged || state.Source != source || state.Offset > stream.Length || stream.Length < state.Size ||
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
                         stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks ||
-                        source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 1;
+                        source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 2;
         if (rewritten)
         {
             Hydrate(state);
@@ -159,8 +162,8 @@ public sealed partial class UsageScanner
                 state.Records = retained.Records;
                 state.Sequence = retained.Sequence;
                 if (source is "Codex" or "API")
-                    state.ReplayRemaining = retained.Records.Values.GroupBy(UsageIdentity.From)
-                        .ToDictionary(x => UsageFingerprint(x.Key), x => x.Count(), StringComparer.Ordinal);
+                    state.ReplayRemaining = retained.Records.Values.GroupBy(x => ReplayFingerprint(x, source))
+                        .ToDictionary(x => x.Key, x => x.Count(), StringComparer.Ordinal);
             }
         }
         if (state.Size == stream.Length && state.LastWriteUtcTicks == info.LastWriteTimeUtc.Ticks && state.Head == head)
@@ -177,7 +180,7 @@ public sealed partial class UsageScanner
         state.Offset = JsonLineReader.Read(stream, state.Offset, stream.Length, (line, _) => Consume(line, state),
             JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
         state.SessionIdentityRead = true;
-        if (source == "API") state.ApiMetadataVersion = 1;
+        if (source == "API") state.ApiMetadataVersion = 2;
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -311,6 +314,9 @@ public sealed partial class UsageScanner
             usage["output_tokens"], usage["reasoning_output_tokens"]));
     }
 
+    private static bool? ReadBoolean(JsonElement root, string key) => root.TryGetProperty(key, out var value) &&
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
+
     private static void ConsumeApi(JsonElement root, FileState state)
     {
         DateTimeOffset? timestamp = Formatting.ParseDate(root.StringOrEmpty("ts"));
@@ -331,29 +337,29 @@ public sealed partial class UsageScanner
             NonNegative(root, "out"), NonNegative(root, "think"),
             (int)NonNegative(root, "status"), (int)NonNegative(root, "ms"),
             root.TryGetProperty("parsed", out var parsed) && parsed.ValueKind is JsonValueKind.True or JsonValueKind.False ? parsed.GetBoolean() : null,
-            root.TryGetProperty("reached_upstream", out var sent) && sent.ValueKind is JsonValueKind.True or JsonValueKind.False ? sent.GetBoolean() : null,
+            ReadBoolean(root, "reached_upstream") ?? ReadBoolean(root, "sent"),
             root.TryGetProperty("rl", out var rl) && rl.ValueKind == JsonValueKind.Object ? ApiQuality.SafeHeaders(rl.EnumerateObject()
                 .Where(x => x.Value.ValueKind == JsonValueKind.String).Select(x => new KeyValuePair<string, string>(x.Name, x.Value.GetString()!))) : null,
-            root.TryGetProperty("complete", out var complete) && complete.ValueKind is JsonValueKind.True or JsonValueKind.False ? complete.GetBoolean() : null));
+            root.TryGetProperty("complete", out var complete) && complete.ValueKind is JsonValueKind.True or JsonValueKind.False ? complete.GetBoolean() : null, host));
     }
 
     private UsageScanResult Summarize(IReadOnlyCollection<string> errors)
     {
         var start = new DateTimeOffset(DateTime.Today);
         var claudeFiles = CachedFiles("Claude");
-        var claude = MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var claude = SourceRecords("Claude", () => MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)));
         var codexFiles = CachedFiles("Codex");
-        var codex = CodexRecords(codexFiles).ToArray();
+        var codex = SourceRecords("Codex", () => CodexRecords(codexFiles));
         var piFiles = CachedFiles(PiDesktopUsage.SourceName);
-        var pi = PiRecords(piFiles).ToArray();
+        var pi = SourceRecords(PiDesktopUsage.SourceName, () => PiRecords(piFiles));
         var zcodeFiles = CachedFiles(ZCodeUsage.SourceName);
-        var zcode = MostRecentPerId(zcodeFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var zcode = SourceRecords(ZCodeUsage.SourceName, () => MostRecentPerId(zcodeFiles.SelectMany(x => x.Value.Records.Values)));
         var buddyFiles = CachedFiles(WorkBuddyUsage.SourceName);
-        var buddy = MostRecentPerId(buddyFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var buddy = SourceRecords(WorkBuddyUsage.SourceName, () => MostRecentPerId(buddyFiles.SelectMany(x => x.Value.Records.Values)));
         var dshFiles = CachedFiles(DshUsage.SourceName);
-        var dsh = MostRecentPerId(dshFiles.SelectMany(x => x.Value.Records.Values)).ToArray();
+        var dsh = SourceRecords(DshUsage.SourceName, () => MostRecentPerId(dshFiles.SelectMany(x => x.Value.Records.Values)));
         var apiFiles = CachedFiles("API");
-        var api = MergeFileCopies(apiFiles).ToArray();
+        var api = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
 
         var now = DateTimeOffset.Now;
         var todayClaude = claude.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
@@ -415,7 +421,7 @@ public sealed partial class UsageScanner
             ranges,
             api.OrderByDescending(x => x.Timestamp).Take(8)
                 .Select(x => new ApiRecentCall(
-                    x.Source["API · ".Length..],
+                    x.ApiAccount,
                     x.Model,
                     x.Timestamp,
                     x.TotalTokens,
@@ -443,6 +449,12 @@ public sealed partial class UsageScanner
             WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now));
     }
 
+    private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)
+    {
+        if (!sourceRecords.TryGetValue(source, out var records)) sourceRecords[source] = records = build().ToArray();
+        return records;
+    }
+
     private KeyValuePair<string, FileState>[] CachedFiles(string source) =>
         cache.Files.Where(x => x.Value.Source == source)
             .OrderByDescending(x => x.Value.LastWriteUtcTicks)
@@ -455,17 +467,22 @@ public sealed partial class UsageScanner
         // file may be restored in chunks. Counts preserve identical real calls.
         if (state.ReplayRemaining.Count > 0)
         {
-            var key = UsageFingerprint(UsageIdentity.From(record));
+            var key = ReplayFingerprint(record, state.Source);
+            // Only metadata-less legacy rows may adopt a newly discovered host.
+            // A known host is part of identity when a log is rewritten or restored.
+            if (state.Source == "API" && !state.ReplayRemaining.ContainsKey(key) && record.ApiHost.Length > 0)
+                key = UsageFingerprint(UsageIdentity.From(record));
             if (state.ReplayRemaining.TryGetValue(key, out var count))
             {
                 if (state.Source == "API")
                 {
-                    state.ReplayMetadata ??= state.Records.Values.GroupBy(x => UsageFingerprint(UsageIdentity.From(x)))
+                    state.ReplayMetadata ??= state.Records.Values.GroupBy(x => ReplayFingerprint(x, state.Source))
                         .ToDictionary(g => g.Key, g => new Queue<string>(g.Select(x => x.Id).Skip(Math.Max(0, g.Count() - state.ReplayRemaining.GetValueOrDefault(g.Key)))));
                     if (state.ReplayMetadata.TryGetValue(key, out var ids) && ids.TryDequeue(out var existingId))
                     {
                         var existing = state.Records[existingId];
                         state.Records[existingId] = record with { Id = existingId, UsageKnown = record.UsageKnown ?? existing.UsageKnown,
+                            ApiHost = record.ApiHost.Length > 0 ? record.ApiHost : existing.ApiHost,
                             ReachedUpstream = record.ReachedUpstream ?? existing.ReachedUpstream, Completed = record.Completed ?? existing.Completed,
                             RateLimits = record.RateLimits is { Count: > 0 } ? record.RateLimits : existing.RateLimits };
                     }
@@ -480,6 +497,9 @@ public sealed partial class UsageScanner
         state.Sequence++;
     }
 
+    private static string ReplayFingerprint(InteractionRecord record, string source) =>
+        UsageFingerprint(UsageIdentity.From(record)) + (source == "API" && record.ApiHost.Length > 0 ? "|" + record.ApiHost.ToUpperInvariant() : "");
+
     private static string UsageFingerprint(UsageIdentity identity) =>
         Fingerprint(JsonSerializer.SerializeToUtf8Bytes(identity));
 
@@ -487,6 +507,24 @@ public sealed partial class UsageScanner
     {
         foreach (var session in files.GroupBy(CodexSessionKey, StringComparer.Ordinal))
             foreach (var record in MergeFileCopies(session.ToArray())) yield return record;
+    }
+
+    private static IEnumerable<InteractionRecord> MergeApiFileCopies(KeyValuePair<string, FileState>[] files)
+    {
+        // Legacy retained rows have no host. Match them against enriched copies first,
+        // but keep separate known hosts even when all usage fields happen to match.
+        foreach (var identity in files.SelectMany(file => file.Value.Records.Values.Select(row => (File: file.Key, Row: row)))
+                     .GroupBy(x => UsageIdentity.From(x.Row)))
+        {
+            var knownCount = 0;
+            foreach (var host in identity.Where(x => x.Row.ApiHost.Length > 0).GroupBy(x => x.Row.ApiHost, StringComparer.OrdinalIgnoreCase))
+            {
+                var representative = host.GroupBy(x => x.File).OrderByDescending(x => x.Count()).First();
+                foreach (var item in representative) { knownCount++; yield return item.Row; }
+            }
+            var unknown = identity.Where(x => x.Row.ApiHost.Length == 0).GroupBy(x => x.File).OrderByDescending(x => x.Count()).FirstOrDefault();
+            if (unknown is not null) foreach (var item in unknown.Skip(knownCount)) yield return item.Row;
+        }
     }
 
     private static IEnumerable<InteractionRecord> MergeFileCopies(KeyValuePair<string, FileState>[] files)
@@ -557,7 +595,7 @@ public sealed partial class UsageScanner
 
     private static ApiRangeSummary BuildApiRange(string key, string label, IReadOnlyList<InteractionRecord> records)
     {
-        var providers = records.GroupBy(x => x.Source["API · ".Length..], StringComparer.OrdinalIgnoreCase)
+        var providers = records.GroupBy(x => x.ApiAccount, StringComparer.OrdinalIgnoreCase)
             .Select(group => new ApiProviderSummary(
                 group.Key,
                 group.Count(),
@@ -572,7 +610,7 @@ public sealed partial class UsageScanner
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var models = records.GroupBy(
-                x => (Provider: x.Source["API · ".Length..], Model: x.Model),
+                x => (Provider: x.ApiAccount, Model: x.Model),
                 new ProviderModelComparer())
             .Select(group => new ApiModelSummary(
                 group.Key.Provider,
@@ -657,6 +695,7 @@ public sealed partial class UsageScanner
                 if (cache.Version is not (1 or ScannerCache.CurrentVersion)) throw new InvalidDataException("Unsupported usage ledger version");
                 cacheDirty = inputPath != cachePath || cache.Version != ScannerCache.CurrentVersion;
                 cache.Version = ScannerCache.CurrentVersion;
+                ShareRetainedStrings();
             }
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
@@ -674,6 +713,26 @@ public sealed partial class UsageScanner
             return true;
         }
         catch { return false; }
+    }
+
+    private void ShareRetainedStrings()
+    {
+        // Scoped to this ledger load; never intern user data for the process lifetime.
+        var strings = new HashSet<string>(StringComparer.Ordinal);
+        string Share(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            if (strings.TryGetValue(value, out var existing)) return existing;
+            if (strings.Count < 8192) strings.Add(value);
+            return value;
+        }
+        foreach (var file in cache.Files.Values)
+        {
+            file.Source = Share(file.Source); file.Model = Share(file.Model);
+            foreach (var (key, row) in file.Records.ToArray())
+                file.Records[key] = row with { Id = key == row.Id ? key : row.Id,
+                    Source = Share(row.Source), Model = Share(row.Model), ApiHost = Share(row.ApiHost) };
+        }
     }
 
     private sealed record DiscoveredFile(string Path, string Source);

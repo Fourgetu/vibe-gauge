@@ -36,7 +36,7 @@ internal static class InsightUi
     }
 }
 
-public sealed class StatisticsPanel : Wpf.UserControl
+public sealed partial class StatisticsPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel body = new() { Margin = new Thickness(0, 0, 5, 12) };
     private UsageStatistics statistics = UsageStatistics.Empty;
@@ -82,12 +82,13 @@ public sealed class StatisticsPanel : Wpf.UserControl
             statistics.Days.SequenceEqual(next.Days) && statistics.Models.SequenceEqual(next.Models) &&
             statistics.Hours.SequenceEqual(next.Hours) && statistics.ActivityHours.SequenceEqual(next.ActivityHours) &&
             (statistics.DailyModels ?? []).SequenceEqual(next.DailyModels ?? []) &&
+            statistics.Prices?.Error == next.Prices?.Error &&
             statistics.Prices?.Estimate(CurrentPeriod.Models) == next.Prices?.Estimate(CurrentPeriod.Models);
         statistics = next;
         tokenUnit = unit;
         if (!unchanged) Render();
     }
-    public void RefreshTheme() => Render();
+    public void RefreshTheme() { if (body.Children.Count > 0) Render(); }
 
     public void SelectRange(string value)
     {
@@ -162,23 +163,9 @@ public sealed class StatisticsPanel : Wpf.UserControl
         title.Name = "StatsScopeTitle";
         scope.Children.Add(title);
         body.Children.Add(scope);
-        var total = InsightUi.Text($"总 Token {Tokens(period.TotalTokens)}", true);
-        total.Name = "StatsTotalTokens";
-        total.FontSize = 20;
-        total.ToolTip = "总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。";
-        body.Children.Add(total);
-        if (statistics.Prices is { } prices)
-        {
-            var cost = InsightUi.Text(prices.Error.Length > 0 ? prices.Error : prices.Estimate(period.Models).Description);
-            cost.ToolTip = $"价格表日期 {prices.AsOf} · 每百万 Token 单价；缓存单独计价，思考不重复计入。";
-            body.Children.Add(cost);
-        }
+        body.Children.Add(SummaryCards(period));
         var interval = period.Start == period.End ? period.Start.ToString("yyyy-MM-dd") : $"{period.Start:yyyy-MM-dd} 至 {period.End:yyyy-MM-dd}";
-        InsightUi.Row(body, period.Start == period.End ? $"{period.Calls:N0} 次调用" : $"{period.Calls:N0} 次调用 · {period.ActiveDays} 个活跃日",
-            $"{interval}\n上下文 {Tokens(period.Context)} · 输出 {Tokens(period.Output)}\n缓存读取 {Tokens(period.CacheRead)} · 思考 {Tokens(period.Thinking)}");
-        var cache = InsightUi.Text(period.CacheHitRate is { } hit ? $"缓存命中 {hit:0.0}% · 缓存写入 {Tokens(period.CacheWrite)}" : "缓存命中 —");
-        cache.ToolTip = "上下文包含缓存读取和缓存写入；思考 token 已包含在输出中，不重复相加。";
-        body.Children.Add(cache);
+        body.Children.Add(InsightUi.Text($"{interval} · {period.Calls:N0} 次调用"));
 
         var today = DateOnly.FromDateTime(DateTime.Today);
         var navigation = new Wpf.DockPanel { Margin = new Thickness(0, 5, 0, 0) };
@@ -204,50 +191,9 @@ public sealed class StatisticsPanel : Wpf.UserControl
         navigation.Children.Add(calendarTitle);
         body.Children.Add(navigation);
         body.Children.Add(hourly ? HourGrid() : Calendar());
-        var modelTitle = InsightUi.Text(ScopeLabel + " · 模型分布", true);
-        modelTitle.Name = "StatsModelTitle";
-        body.Children.Add(modelTitle);
-        body.Children.Add(InsightUi.Text("上下文 token 占比 · API 代理用量单独统计"));
-        if (period.Models.Count == 0)
-        {
-            var empty = InsightUi.Text(SelectedDate is not null ? "所选日期暂无本地用量记录。" : "所选范围暂无本地用量记录。");
-            empty.Name = "StatsEmpty";
-            body.Children.Add(empty);
-        }
-        foreach (var model in period.Models)
-        {
-            var share = period.Context > 0 ? model.Context * 100d / period.Context : 0;
-            var header = new Wpf.DockPanel();
-            var percent = InsightUi.Text(period.Context > 0 ? $"{share:0.0}%" : "—");
-            percent.Margin = new Thickness(8, 3, 0, 5);
-            Wpf.DockPanel.SetDock(percent, Wpf.Dock.Right);
-            header.Children.Add(percent);
-            var name = InsightUi.Text($"{model.Source} · {model.Model}", true);
-            name.Tag = model;
-            header.Children.Add(name);
-            body.Children.Add(header);
-            body.Children.Add(new Wpf.ProgressBar
-            {
-                Minimum = 0,
-                Maximum = 100,
-                Value = share,
-                Height = 4,
-                Foreground = Brush("GoodBrush"),
-                Background = Brush("TrackBrush"),
-                Style = (Style)System.Windows.Application.Current.FindResource("CompactProgressStyle"),
-                BorderThickness = new Thickness(0)
-            });
-            var modelTotal = InsightUi.Text($"总 Token {Tokens(model.TotalTokens)} · {model.Calls:N0} 次");
-            modelTotal.Name = "StatsModelTotal";
-            modelTotal.FontSize = 12;
-            modelTotal.FontWeight = FontWeights.SemiBold;
-            modelTotal.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextPrimaryBrush");
-            body.Children.Add(modelTotal);
-            var metrics = InsightUi.Text($"上下文 {Tokens(model.Context)} · 输出 {Tokens(model.Output)}");
-            metrics.Margin = new Thickness(0, 0, 0, 6);
-            metrics.ToolTip = $"缓存读取 {Tokens(model.CacheRead)}\n缓存写入 {Tokens(model.CacheWrite)}\n思考 {Tokens(model.Thinking)}";
-            body.Children.Add(metrics);
-        }
+        body.Children.Add(TokenDistribution(period));
+        body.Children.Add(ModelDistribution(period));
+        body.Children.Add(AgentConsumption(period));
     }
 
     private Wpf.Button ModeButton(string glyph, string label, bool value)
@@ -439,6 +385,8 @@ public sealed class NetworkPanel : Wpf.UserControl
     private readonly Wpf.StackPanel adapters = new();
     private readonly Wpf.StackPanel diagnostics = new();
     private NetworkDiagnosticsReport? lastDiagnostics;
+    private string lastDiagnosticAges = "";
+    private readonly NetworkDiagnostics standalone = new(new AppPaths());
     private readonly Wpf.TextBlock result = InsightUi.Text("出口检测仅在点击时联网，不发送账号或用量数据。");
     public NetworkPanel()
     {
@@ -456,17 +404,19 @@ public sealed class NetworkPanel : Wpf.UserControl
             var button = (Wpf.Button)sender; button.IsEnabled = false;
             try
             {
-                var paths = DataContext is ViewModels.DashboardViewModel vm ? vm.Paths : new AppPaths();
-                RenderDiagnostics(await new NetworkDiagnostics(paths).RefreshAsync());
+                RenderDiagnostics(await (DataContext is ViewModels.DashboardViewModel vm ? vm.RefreshDiagnosticsAsync() : standalone.RefreshAsync()));
             }
             finally { button.IsEnabled = true; }
         }));
         body.Children.Add(buttons); body.Children.Add(result); body.Children.Add(diagnostics); body.Children.Add(adapters);
+        foreach (var target in NetworkDiagnostics.Targets)
+            InsightUi.Row(diagnostics, target.Provider, target.Host + " · 尚未探测，点击完整诊断");
+        InsightUi.Row(diagnostics, "Gemini", "活动连接链 · 尚未读取，点击完整诊断");
         Content = new Wpf.ScrollViewer { Content = body, VerticalScrollBarVisibility = Wpf.ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = Wpf.ScrollBarVisibility.Disabled };
     }
     public void Update(IReadOnlyList<NetworkAdapterInfo>? value, NetworkDiagnosticsReport? report = null)
     {
-        if (report is not null && report != lastDiagnostics) RenderDiagnostics(report);
+        if (report is not null) RenderDiagnostics(report);
         adapters.Children.Clear();
         foreach (var row in value ?? [])
             InsightUi.Row(adapters, $"{row.Name} · {row.Kind}",
@@ -475,12 +425,18 @@ public sealed class NetworkPanel : Wpf.UserControl
     }
     private void RenderDiagnostics(NetworkDiagnosticsReport report)
     {
+        var now = DateTimeOffset.Now;
+        var ages = string.Join("|", report.Exits.Select(x => x.CapturedAt is { } captured
+            ? Math.Max(0, (now - captured).TotalMinutes).ToString("0") : ""));
+        if (ReferenceEquals(lastDiagnostics, report) && lastDiagnosticAges == ages) return;
         lastDiagnostics = report;
+        lastDiagnosticAges = ages;
         diagnostics.Children.Clear();
         diagnostics.Children.Add(InsightUi.Text($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}"));
-        foreach (var e in report.Exits) InsightUi.Row(diagnostics, e.Provider, e.Error.Length > 0 ? e.Error : $"{e.Ip} · {e.Region} · {e.Colo}");
-        InsightUi.Row(diagnostics, "出口对比", report.Exits.Where(x => x.Ip.Length > 0).Select(x => x.Ip).Distinct().Count() > 1
-            ? "各站点出口不同，可能由分流规则造成；请结合节点链核验。" : "已确认的出口一致；未回报的站点不参与判断。");
+        foreach (var e in report.Exits)
+            InsightUi.Row(diagnostics, e.Provider, e.Host + "\n" + (e.Error.Length > 0 ? e.Error : e.Chain.Length > 0 ? e.Chain : $"{e.Ip} · {e.Region} · {e.Colo}") +
+                (e.LatencyMs is { } latency ? $" · {latency} ms" : "") + (e.CapturedAt is { } captured ? $" · 采集 {captured.LocalDateTime:MM-dd HH:mm:ss} · {Math.Max(0, (DateTimeOffset.Now - captured).TotalMinutes):0} 分钟前" : ""));
+        InsightUi.Row(diagnostics, "出口对比", report.Comparison);
         InsightUi.Row(diagnostics, "Clash / Mihomo（只读）", string.Join("\n", report.Proxy));
         InsightUi.Row(diagnostics, "Wi-Fi / Tailscale", report.Local.Count > 0 ? string.Join("\n", report.Local) : "未取得附加接口信息");
         InsightUi.Row(diagnostics, "DNS / IPv6", report.Dns + "\n" + report.Ipv6);

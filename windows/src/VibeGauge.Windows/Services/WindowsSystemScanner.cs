@@ -41,9 +41,15 @@ public sealed class WindowsSystemScanner
         lock (sync)
         {
             var processes = ReadProcesses();
-            var listeners = NativeMethods.ListeningProcessIds();
-            var servicePids = ReadServiceProcessIds();
-            var protectedTokens = ReadStartupTokens().Concat(ReadScheduledTaskTokens()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            HashSet<int>? listeners = null, servicePids = null;
+            string[] protectedTokens = [];
+            try
+            {
+                listeners = NativeMethods.ListeningProcessIds();
+                servicePids = ReadServiceProcessIds();
+                protectedTokens = ReadStartupTokens().Concat(ReadScheduledTaskTokens()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+            catch { listeners = null; servicePids = null; }
             var report = BuildProcessReport(processes, listeners, servicePids, protectedTokens) with { LocalRuntimes = LocalRuntimeDiscovery.From(processes.Values) };
             return (ReadMetrics(), report);
         }
@@ -74,8 +80,9 @@ public sealed class WindowsSystemScanner
                 using var process = Process.GetProcessById(target.ProcessId);
                 if (target.StartedAt is null || Math.Abs((process.StartTime.ToUniversalTime() - target.StartedAt.Value.UtcDateTime).TotalSeconds) > 1)
                 { skipped++; messages.Add($"PID {target.ProcessId} 启动时间变化，跳过"); continue; }
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit(2000);
+                process.Kill(entireProcessTree: false);
+                if (!process.WaitForExit(2000))
+                { skipped++; messages.Add($"PID {target.ProcessId} 尚未确认退出"); continue; }
                 killed++;
                 freed += target.MemoryMb;
             }
@@ -187,21 +194,17 @@ public sealed class WindowsSystemScanner
                 }
             }
         }
-        catch (ManagementException) { }
+        catch (ManagementException) { result.Clear(); }
         return result;
     }
 
     private static HashSet<int> ReadServiceProcessIds()
     {
         var result = new HashSet<int>();
-        try
-        {
-            using var searcher = new ManagementObjectSearcher("SELECT ProcessId FROM Win32_Service WHERE ProcessId <> 0");
-            using var results = searcher.Get();
-            foreach (ManagementObject item in results)
-                using (item) result.Add(Convert.ToInt32(item["ProcessId"] ?? 0));
-        }
-        catch { }
+        using var searcher = new ManagementObjectSearcher("SELECT ProcessId FROM Win32_Service WHERE ProcessId <> 0");
+        using var results = searcher.Get();
+        foreach (ManagementObject item in results)
+            using (item) result.Add(Convert.ToInt32(item["ProcessId"] ?? 0));
         return result;
     }
 
@@ -232,12 +235,11 @@ public sealed class WindowsSystemScanner
         try
         {
             var type = Type.GetTypeFromProgID("Schedule.Service");
-            if (type is null) return values;
+            if (type is null) throw new InvalidOperationException("计划任务保护信息不可用");
             service = Activator.CreateInstance(type)!;
             ((dynamic)service).Connect();
             ReadTaskFolder(((dynamic)service).GetFolder("\\"), values);
         }
-        catch { }
         finally { ReleaseCom(service); }
         return values;
     }
@@ -259,11 +261,11 @@ public sealed class WindowsSystemScanner
                     {
                         try
                         {
+                            if ((int)action.Type != 0) continue;
                             var path = action.Path as string;
                             var args = action.Arguments as string;
                             if (!string.IsNullOrWhiteSpace(path)) values.Add(path + " " + args);
                         }
-                        catch { }
                         finally { ReleaseCom(action); }
                     }
                 }
@@ -275,7 +277,6 @@ public sealed class WindowsSystemScanner
                 ReadTaskFolder(child, values);
             }
         }
-        catch { }
         finally { ReleaseCom(folders); ReleaseCom(tasks); ReleaseCom(folder); }
     }
 
@@ -286,8 +287,8 @@ public sealed class WindowsSystemScanner
 
     private static ProcessReport BuildProcessReport(
         IReadOnlyDictionary<int, ProcessSnapshot> processes,
-        IReadOnlySet<int> listeners,
-        IReadOnlySet<int> servicePids,
+        IReadOnlySet<int>? listeners,
+        IReadOnlySet<int>? servicePids,
         IReadOnlyList<string> protectedTokens)
     {
         using var currentProcess = Process.GetCurrentProcess();
@@ -323,7 +324,9 @@ public sealed class WindowsSystemScanner
                 continue;
             }
             string? protection = null;
-            if (process.SessionId != currentSession) protection = "其他用户或服务会话";
+            if (listeners is null || servicePids is null) protection = "保护信息不可用，暂停清理";
+            else if (process.SessionId != currentSession) protection = "其他用户或服务会话";
+            else if (processes.Values.Any(x => x.ParentProcessId == process.ProcessId)) protection = "仍有活动子进程";
             else if (servicePids.Contains(process.ProcessId)) protection = "Windows 服务托管";
             else if (listeners.Contains(process.ProcessId)) protection = "正在监听端口";
             else if (protectedTokens.Any(x => CommandMatchesRegistration(process, x))) protection = "登录启动项或计划任务托管";
@@ -462,12 +465,12 @@ public sealed class WindowsSystemScanner
         private static void ReadTable(int family, int rowSize, int pidOffset, HashSet<int> result)
         {
             var size = 0;
-            _ = GetExtendedTcpTable(IntPtr.Zero, ref size, true, family, TcpTableOwnerPidListener, 0);
-            if (size <= 4) return;
+            var status = GetExtendedTcpTable(IntPtr.Zero, ref size, true, family, TcpTableOwnerPidListener, 0);
+            if (status != 0 && status != 122 || size < 4) throw new InvalidOperationException("监听端口保护信息不可用");
             var buffer = Marshal.AllocHGlobal(size);
             try
             {
-                if (GetExtendedTcpTable(buffer, ref size, true, family, TcpTableOwnerPidListener, 0) != 0) return;
+                if (GetExtendedTcpTable(buffer, ref size, true, family, TcpTableOwnerPidListener, 0) != 0) throw new InvalidOperationException("监听端口保护信息不可用");
                 var count = Marshal.ReadInt32(buffer);
                 for (var i = 0; i < count; i++) result.Add(Marshal.ReadInt32(buffer, 4 + i * rowSize + pidOffset));
             }

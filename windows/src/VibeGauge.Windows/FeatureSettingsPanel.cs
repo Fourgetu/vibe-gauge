@@ -12,32 +12,76 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel body = new();
     private readonly DashboardViewModel vm;
+    internal bool IsOverview { get; private set; }
     public FeatureSettingsPanel(DashboardViewModel vm)
     {
         this.vm = vm; Content = body;
-        body.Children.Add(InsightUi.Text("语言 / Language", true));
-        var languages = new Wpf.ComboBox { ItemsSource = new[] { "跟随系统", "简体中文", "English" }, Margin = new Thickness(0, 4, 0, 6) };
-        languages.SelectedIndex = FeaturePreferences.Load(vm.Paths).Language switch { "zh" => 1, "en" => 2, _ => 0 };
-        languages.SelectionChanged += (_, _) =>
+        ShowOverview();
+        PreviewKeyDown += (_, e) =>
         {
-            var language = languages.SelectedIndex switch { 1 => "zh", 2 => "en", _ => "system" };
-            (FeaturePreferences.Load(vm.Paths) with { Language = language }).Save(vm.Paths);
-            UiLocalization.SetLanguage(language);
+            if (e.Key == System.Windows.Input.Key.Escape && !IsOverview) { ShowOverview(); e.Handled = true; }
         };
-        body.Children.Add(languages);
-        BuildBridge(); BuildAccounting(); BuildNetwork(); BuildNotifications(); BuildMaintenance(); BuildUpdates(); BuildCli();
     }
-    private Wpf.StackPanel Section(string title)
+    private void ShowOverview()
     {
-        var panel = new Wpf.StackPanel { Margin = new Thickness(8, 4, 0, 10) };
-        var expander = new Wpf.Expander { Header = title, Content = panel, Margin = new Thickness(0, 5, 0, 5) };
-        expander.SetResourceReference(ForegroundProperty, "TextPrimaryBrush");
-        body.Children.Add(expander); return panel;
+        IsOverview = true; body.Children.Clear();
+        var panel = Section("设置");
+        Toggle(panel, "定时自动清理", x => x.AutoReap, (x, b) => x with { AutoReap = b },
+            "启用后每 30 分钟、唤醒后或内存吃紧时检查；连续确认至少 120 秒才清理当前用户的孤立 MCP。保护活动会话、监听服务、启动项和计划任务。不会自动删除任何会话文件。",
+            "每 30 分钟、唤醒后及内存吃紧时检查，仅清理确认孤立的 MCP 进程。");
+        var startup = SettingRows.Toggle(panel, "登录时自动启动", "随 Windows 登录启动，常驻系统托盘。", vm.StartupEnabled);
+        startup.Click += (_, _) =>
+        {
+            try { vm.StartupEnabled = startup.IsChecked == true; }
+            catch (Exception error) { startup.IsChecked = vm.StartupEnabled; LocalizedMessageBox.Show(error.Message, "VibeGauge"); }
+        };
+        Toggle(panel, "阈值通知", x => x.QuotaNotifications || x.MemoryNotifications || x.DiskNotifications,
+            (x, b) => x with { QuotaNotifications = b, MemoryNotifications = b, DiskNotifications = b },
+            description: "额度、内存或磁盘到达设定阈值时提醒，可在详细设置中分别调整。");
+        Toggle(panel, "出口变化通知", x => x.EgressNotifications, (x, b) => x with { EgressNotifications = b },
+            description: "AI 出口 IP 或国家变化时提醒；通过手动或定时网络诊断检测。");
+        Toggle(panel, "检查软件更新", x => x.CheckUpdates, (x, b) => x with { CheckUpdates = b },
+            description: "每天检查 GitHub 上的 VibeGauge 新版本；只提示，不自动安装。");
+        BridgeToggle(panel, "Claude Code 额度连接", "claude", false);
+        BridgeToggle(panel, "Antigravity (agy) 额度连接", "agy", false);
+        BridgeToggle(panel, "待处理会话", "claude", true);
+        using var registry = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\VibeGauge");
+        var forecast = SettingRows.Toggle(panel, "额度预测通知", "预计在重置前耗尽时提醒，每个周期一次。", registry?.GetValue("ForecastNotifications") is int enabled && enabled != 0);
+        forecast.Click += (_, _) =>
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\VibeGauge");
+                key.SetValue("ForecastNotifications", forecast.IsChecked == true ? 1 : 0);
+            }
+            catch (Exception error) { forecast.IsChecked = !forecast.IsChecked; LocalizedMessageBox.Show(error.Message, "VibeGauge"); }
+        };
+        var more = Section("详细设置");
+        void Page(string title, string description, Action build) => SettingRows.Navigate(more, title, description, () => ShowPage(build));
+        Page("通知与阈值", "分别调整通知项目和触发阈值。", BuildNotifications);
+        Page("网络诊断", "自动诊断频率、本机或软路由控制器。", BuildNetwork);
+        Page("API 成本与套餐", "配置价格和本机请求额度估算。", BuildAccounting);
+        Page("磁盘占用与维护", "查看目录占用，预览旧文件清理。", BuildMaintenance);
+        Page("软件版本", "查看 VibeGauge 版本，手动检查或打开发布页。", BuildUpdates);
+        Page("官方 CLI", "查看安装状态和登录指引。", BuildCli);
+        Page("代理连接", "配置本地端口和上游 HTTP 代理。", () => SettingsPanel.BuildProxy(vm, Section("代理连接")));
     }
-    private void Toggle(Wpf.Panel panel, string label, Func<FeaturePreferences, bool> read, Func<FeaturePreferences, bool, FeaturePreferences> write, string? confirm = null)
+    private void ShowPage(Action build)
     {
-        var box = new Wpf.CheckBox { Content = label, IsChecked = read(FeaturePreferences.Load(vm.Paths)),
-            Style = (Style)System.Windows.Application.Current.FindResource("ToggleStyle"), Margin = new Thickness(0, 4, 0, 5) };
+        IsOverview = false; body.Children.Clear();
+        var back = InsightUi.Button("‹ 返回设置", (_, _) => { ShowOverview(); BringTopIntoView(); });
+        back.HorizontalAlignment = System.Windows.HorizontalAlignment.Left; back.Margin = new Thickness(0, 0, 0, 10);
+        body.Children.Add(back); build(); BringTopIntoView();
+    }
+    private void BringTopIntoView() => Dispatcher.BeginInvoke(new Action(() =>
+    {
+        if (body.Children.Count > 0 && body.Children[0] is FrameworkElement first) first.BringIntoView();
+    }), System.Windows.Threading.DispatcherPriority.Loaded);
+    private Wpf.StackPanel Section(string title) => SettingRows.Card(body, title);
+    private void Toggle(Wpf.Panel panel, string label, Func<FeaturePreferences, bool> read, Func<FeaturePreferences, bool, FeaturePreferences> write,
+        string? confirm = null, string? description = null)
+    {
+        var box = SettingRows.Toggle(panel, label, description ?? "", read(FeaturePreferences.Load(vm.Paths)));
         box.Click += (_, _) =>
         {
             if (box.IsChecked == true && confirm is not null && LocalizedMessageBox.Show(confirm, "VibeGauge", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
@@ -45,7 +89,29 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
             try { write(FeaturePreferences.Load(vm.Paths), box.IsChecked == true).Save(vm.Paths); }
             catch (Exception e) { box.IsChecked = !box.IsChecked; LocalizedMessageBox.Show(e.Message, "VibeGauge"); }
         };
-        panel.Children.Add(box);
+    }
+    private void BridgeToggle(Wpf.Panel panel, string label, string tool, bool hooks)
+    {
+        var description = hooks ? "观察 Claude Code 等待批准或输入的会话；只记事件和时间，不代你批准，关闭即移除。" :
+            "从状态栏读取官方额度，原状态栏照常显示；关闭即可恢复。";
+        bool Connected() => hooks ? CliBridge.HooksInstalled(vm.Paths) : CliBridge.StatusInstalled(vm.Paths, tool);
+        var box = SettingRows.Toggle(panel, label, description, Connected());
+        box.Click += async (_, _) =>
+        {
+            var enable = box.IsChecked == true;
+            if (enable && LocalizedMessageBox.Show(hooks ? "将备份 Claude settings.json 并添加只观察 Hook。不批准请求、不读取提示词、不改其他 Hook。" :
+                "将备份客户端配置并连接只读额度桥接。保留原状态栏，可随时恢复。", "VibeGauge", MessageBoxButton.OKCancel) != MessageBoxResult.OK)
+            { box.IsChecked = Connected(); return; }
+            box.IsEnabled = false;
+            try
+            {
+                var executable = ProxyManager.FindProxyExecutable() ?? throw new IOException("缺少 VibeGauge.Proxy.exe，请使用完整安装包");
+                CliBridge.Configure(vm.Paths, executable, enable, hooks, tool);
+                await vm.RefreshAsync();
+            }
+            catch (Exception error) { LocalizedMessageBox.Show("连接失败：" + error.Message, "VibeGauge"); }
+            finally { box.IsChecked = Connected(); box.IsEnabled = true; }
+        };
     }
     private static Wpf.TextBox Input(string text)
     {
@@ -54,28 +120,27 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
         input.SetResourceReference(Wpf.TextBox.CaretBrushProperty, "TextPrimaryBrush"); return input;
     }
     private static void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
-    private void BuildBridge()
-    {
-        var panel = Section("Gemini / AGY 额度桥接");
-        var status = InsightUi.Text(CliBridge.StatusInstalled(vm.Paths, "agy") ? "已连接 AGY 状态栏" : "未连接 AGY 状态栏");
-        panel.Children.Add(status);
-        foreach (var enable in new[] { true, false }) panel.Children.Add(InsightUi.Button(enable ? "连接 AGY 额度" : "恢复 AGY 状态栏", async (_, _) =>
-        {
-            try
-            {
-                var executable = ProxyManager.FindProxyExecutable() ?? throw new IOException("缺少 VibeGauge.Proxy.exe，请使用完整安装包");
-                if (enable && LocalizedMessageBox.Show("将备份 .gemini/antigravity-cli/settings.json，并连接只读额度桥接。保留原状态栏，可随时恢复。", "AGY", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
-                CliBridge.Configure(vm.Paths, executable, enable, false, "agy");
-                status.Text = CliBridge.StatusInstalled(vm.Paths, "agy") ? "已连接；新 AGY 会话生效" : "已恢复原状态栏";
-                await vm.RefreshAsync();
-            }
-            catch (Exception e) { status.Text = e.Message; }
-        }));
-    }
     private void BuildAccounting()
     {
         var panel = Section("API 等价成本 / Coding Plans");
         panel.Children.Add(InsightUi.Text("prices.json 为每百万 Token 单价；plans.json 为本机请求额度估算。未填价格不会被当作零成本，所有金额均非实际账单。"));
+        var priceStatus = InsightUi.Text(""); priceStatus.Name = "OpenRouterPriceStatus";
+        var priceUpdate = InsightUi.Button("使用 / 更新 OpenRouter 价格", async (sender, _) =>
+        {
+            var button = (Wpf.Button)sender; button.IsEnabled = false;
+            priceStatus.Text = "正在获取 OpenRouter 公开价格…";
+            try
+            {
+                var snapshot = await OpenRouterPriceUpdater.UpdateAsync(vm.Paths);
+                priceStatus.Text = $"已应用 OpenRouter 价格：{snapshot.ModelCount} 个模型 · USD · {snapshot.CapturedAt:yyyy-MM-dd}";
+                await vm.RefreshAsync();
+            }
+            catch { priceStatus.Text = "价格更新失败，原有价格表保持不变；请检查网络后重试。"; }
+            finally { button.IsEnabled = true; }
+        });
+        priceUpdate.Name = "OpenRouterPriceUpdate"; panel.Children.Add(priceUpdate);
+        panel.Children.Add(InsightUi.Text("获取公开单价，无需密钥，不上传用量。替换价格表前自动备份；按当前基础 Token 单价估算，不含阶梯价和工具等附加费。自定义模型名未匹配时显示未定价。"));
+        panel.Children.Add(priceStatus);
         foreach (var file in new[] { "prices.json", "plans.json" }) panel.Children.Add(InsightUi.Button("编辑 " + file, (_, _) =>
         {
             try
@@ -93,16 +158,92 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
     {
         var panel = Section("网络诊断设置");
         Toggle(panel, "每 5 分钟执行完整网络诊断", x => x.NetworkDiagnostics, (x, b) => x with { NetworkDiagnostics = b },
-            "将访问 AI 站点的公开 trace、执行本机 DNS / IPv6 检测，并只读查询本地 Clash、Wi-Fi 和 Tailscale。不发送 API Key 或用量日志。");
-        Toggle(panel, "出口 IP 变化时通知", x => x.EgressNotifications, (x, b) => x with { EgressNotifications = b });
-        var endpoint = Input(FeaturePreferences.Load(vm.Paths).ClashController);
-        panel.Children.Add(InsightUi.Text("Clash / Mihomo 本机控制器")); panel.Children.Add(endpoint);
-        panel.Children.Add(InsightUi.Button("保存控制器地址", (_, _) =>
+            "将访问 AI 站点的公开 trace、执行本机 DNS / IPv6 检测，并只读查询所配置控制器、Wi-Fi 和 Tailscale。不发送 AI API Key 或用量日志。");
+        var networkOptions = FeaturePreferences.Load(vm.Paths);
+        var lan = SettingRows.Toggle(panel, "连接局域网软路由", "开启后可填写 OpenClash / Mihomo 的私有 IP 地址。", networkOptions.LanClashController);
+        lan.Name = "ClashLan";
+        var endpoint = Input(networkOptions.ClashController);
+        endpoint.Name = "ClashEndpoint";
+        panel.Children.Add(InsightUi.Text("Clash / OpenClash / Mihomo 控制器地址")); panel.Children.Add(endpoint);
+        var sourcePanel = new Wpf.StackPanel();
+        sourcePanel.Children.Add(InsightUi.Text("来源设备 IP（选填）"));
+        var sourceIp = Input(networkOptions.ClashSourceIp); sourceIp.Name = "ClashSourceIp"; sourcePanel.Children.Add(sourceIp);
+        sourcePanel.Children.Add(InsightUi.Text("留空查询软路由上所有设备；填写这台电脑的局域网 IP 可只看它的连接。HTTP 仅用于可信局域网，也支持 HTTPS。"));
+        panel.Children.Add(sourcePanel);
+        ClashControllerCredentials Credentials() => new(vm.Paths, allowLan: lan.IsChecked == true);
+        panel.Children.Add(InsightUi.Text("控制器密钥（secret）"));
+        var secret = new Wpf.PasswordBox { Name = "ClashSecret", MaxLength = 2000, Padding = new Thickness(5), Margin = new Thickness(0, 3, 0, 6) };
+        System.Windows.Automation.AutomationProperties.SetName(secret, "控制器密钥");
+        secret.SetResourceReference(Wpf.PasswordBox.ForegroundProperty, "TextPrimaryBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.BackgroundProperty, "CardRaisedBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.CaretBrushProperty, "TextPrimaryBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.BorderBrushProperty, "BorderStrongBrush");
+        panel.Children.Add(secret);
+        panel.Children.Add(InsightUi.Text("填写 ClashMi / Clash / Mihomo 的控制器 secret，不是 Google API Key。留空保存会保留现有密钥。"));
+        var credentialStatus = InsightUi.Text(""); credentialStatus.Name = "ClashCredentialStatus"; panel.Children.Add(credentialStatus);
+        var feedback = InsightUi.Text(""); feedback.Name = "ClashFeedback";
+        void Feedback(string message, bool error = false)
         {
-            try { (FeaturePreferences.Load(vm.Paths) with { ClashController = endpoint.Text.Trim() }).Save(vm.Paths); }
-            catch (Exception e) { LocalizedMessageBox.Show(e.Message, "VibeGauge"); }
-        }));
-        panel.Children.Add(InsightUi.Text("有认证时，通过 VIBEGAUGE_CLASH_SECRET 环境变量提供密钥；不会保存或显示此密钥。"));
+            feedback.Text = message;
+            feedback.SetResourceReference(Wpf.TextBlock.ForegroundProperty, error ? "DangerBrush" : "TextSecondaryBrush");
+        }
+        void RefreshCredentialStatus()
+        {
+            try
+            {
+                credentialStatus.Text = Credentials().ReadSaved(endpoint.Text) is not null ? "已保存此控制器的密钥；输入新值可替换。" :
+                    ClashControllerCredentials.IsLocal(ClashControllerCredentials.NormalizeEndpoint(endpoint.Text, lan.IsChecked == true)) && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("VIBEGAUGE_CLASH_SECRET")) ? "当前使用环境变量中的密钥；保存新密钥后优先使用新值。" : "尚未保存此控制器的密钥。";
+            }
+            catch (ArgumentException) { credentialStatus.Text = ClashControllerCredentials.InvalidEndpoint; }
+            catch (InvalidOperationException) { credentialStatus.Text = ClashControllerCredentials.UnreadableSecret; }
+        }
+        var actions = new Wpf.WrapPanel();
+        var save = InsightUi.Button("保存控制器设置", (_, _) =>
+        {
+            try
+            {
+                var address = ClashControllerCredentials.NormalizeEndpoint(endpoint.Text, lan.IsChecked == true).AbsoluteUri.TrimEnd('/');
+                var filter = lan.IsChecked == true ? ClashControllerCredentials.NormalizeSourceIp(sourceIp.Text) : "";
+                if (secret.Password.Length > 0) Credentials().Save(address, secret.Password);
+                (FeaturePreferences.Load(vm.Paths) with { ClashController = address, LanClashController = lan.IsChecked == true, ClashSourceIp = filter }).Save(vm.Paths);
+                secret.Clear(); RefreshCredentialStatus(); Feedback("已保存，下一次检测立即生效，无需重启。");
+            }
+            catch (ArgumentException error) { Feedback(error.Message, true); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+            { Feedback("保存失败，请检查本机数据目录是否可写。", true); }
+        });
+        save.Name = "ClashSave"; actions.Children.Add(save);
+        var test = InsightUi.Button("测试连接", async (_, _) =>
+        {
+            endpoint.IsEnabled = secret.IsEnabled = actions.IsEnabled = lan.IsEnabled = sourceIp.IsEnabled = false;
+            Feedback("正在测试控制器…");
+            try
+            {
+                var result = await new ClashControllerClient(vm.Paths).ReadAsync(endpoint.Text, secret.Password.Length > 0 ? secret.Password : null, lan.IsChecked == true, sourceIp.Text);
+                Feedback(result.Available ? "连接成功，可读取活动连接表。测试不会保存输入；返回网络页点击完整诊断可更新 Gemini 链路。" : result.Error, !result.Available);
+            }
+            finally { endpoint.IsEnabled = secret.IsEnabled = actions.IsEnabled = lan.IsEnabled = sourceIp.IsEnabled = true; }
+        });
+        test.Name = "ClashTest"; actions.Children.Add(test);
+        var remove = InsightUi.Button("移除已保存密钥", (_, _) =>
+        {
+            try { Credentials().Remove(endpoint.Text); secret.Clear(); RefreshCredentialStatus(); Feedback("已移除此控制器的密钥；本机控制器仍可使用环境变量中的密钥。"); }
+            catch (ArgumentException error) { Feedback(error.Message, true); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { Feedback("移除失败，请检查本机数据目录是否可写。", true); }
+        });
+        remove.Name = "ClashRemove"; actions.Children.Add(remove);
+        panel.Children.Add(actions); panel.Children.Add(feedback);
+        panel.Children.Add(InsightUi.Text("密钥按控制器地址分别加密保存，仅发送给所填控制器。软路由不会使用本机环境变量中的密钥。"));
+        endpoint.TextChanged += (_, _) => { secret.Clear(); RefreshCredentialStatus(); feedback.Text = ""; };
+        void RefreshMode()
+        {
+            sourcePanel.Visibility = lan.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            secret.Clear(); RefreshCredentialStatus(); feedback.Text = "";
+        }
+        lan.Click += (_, _) => RefreshMode();
+        secret.PasswordChanged += (_, _) => feedback.Text = "";
+        secret.Unloaded += (_, _) => secret.Clear();
+        RefreshMode();
     }
     private void BuildNotifications()
     {
@@ -125,8 +266,6 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
     private void BuildMaintenance()
     {
         var panel = Section("磁盘占用 / 安全维护");
-        Toggle(panel, "自动清理确认孤立的 MCP 进程", x => x.AutoReap, (x, b) => x with { AutoReap = b },
-            "启用后每 30 分钟、唤醒后或内存吃紧时检查；连续确认至少 120 秒才清理当前用户的孤立 MCP。保护活动会话、监听服务、启动项和计划任务。不会自动删除任何会话文件。");
         var inventory = new DiskInventory(vm.Paths);
         var listing = InsightUi.Text("点击扫描后显示各客户端目录；模型文件与数据库只读。");
         panel.Children.Add(InsightUi.Button("扫描 AI 目录占用", async (sender, _) =>
@@ -164,8 +303,9 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
     }
     private void BuildUpdates()
     {
-        var panel = Section("Windows 版本更新");
-        Toggle(panel, "每天检查一次 Windows 正式新版", x => x.CheckUpdates, (x, b) => x with { CheckUpdates = b });
+        var panel = Section("VibeGauge 软件更新");
+        panel.Children.Add(InsightUi.Text("当前版本 " + vm.AppVersionText, true));
+        panel.Children.Add(InsightUi.Text("检查 VibeGauge 的 Windows 发行包，不检查 Windows 系统更新。"));
         var checker = new UpdateChecker(vm.Paths); var status = InsightUi.Text(checker.Status); panel.Children.Add(status);
         panel.Children.Add(InsightUi.Button("立即检查更新", async (sender, _) =>
         {
@@ -173,7 +313,7 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
             try { await checker.CheckAsync(); status.Text = checker.Status; }
             finally { button.IsEnabled = true; }
         }));
-        panel.Children.Add(InsightUi.Button("打开 Windows 发布页", (_, _) => Open("https://github.com/Fourgetu/vibe-gauge/releases")));
+        panel.Children.Add(InsightUi.Button("打开 VibeGauge 发布页", (_, _) => Open("https://github.com/Fourgetu/vibe-gauge/releases")));
     }
     private void BuildCli()
     {

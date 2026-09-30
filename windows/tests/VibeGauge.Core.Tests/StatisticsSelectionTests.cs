@@ -101,4 +101,74 @@ public sealed class StatisticsSelectionTests
 
     private static InteractionRecord Record(DateTimeOffset at, string model, long context, long output) =>
         new(Guid.NewGuid().ToString(), "Codex", model, at, context, 30, 5, output, 4);
+
+    [Fact]
+    public void ModelCompositionMergesToolsAndRanksByInputPlusOutput()
+    {
+        var stats = UsageStatistics.Build([
+            Record(Now, "same", 100, 10),
+            Record(Now, "same", 200, 20) with { Source = "Claude" },
+            Record(Now, "output-heavy", 50, 450),
+            Record(Now.AddDays(-1), "old", 900, 1)
+        ], Now, TimeZoneInfo.Utc);
+        var period = stats.ForPeriod(Today, Today);
+        var mix = period.ModelComposition;
+        Assert.Equal(3, period.Models.Count); // Pricing retains individual source records.
+        Assert.Equal(2, mix.Count);
+        Assert.Equal("output-heavy", mix[0].Model);
+        Assert.Equal(500, mix[0].TotalTokens);
+        Assert.Equal("same", mix[1].Model);
+        Assert.Equal("Claude / Codex", mix[1].Source);
+        Assert.Equal(330, mix[1].TotalTokens);
+        Assert.Equal(60, mix[1].CacheRead);
+        Assert.Equal(10, mix[1].CacheWrite);
+        Assert.Equal(8, mix[1].Thinking);
+        Assert.Equal(period.TotalTokens, mix.Sum(x => x.TotalTokens));
+        Assert.Equal(100, mix.Sum(x => x.TotalTokens * 100d / period.TotalTokens), 8);
+    }
+
+    [Fact]
+    public void DistributionPartitionsTokensWithoutCountingReasoningTwice()
+    {
+        var stats = UsageStatistics.Build([
+            Record(Now, "m", 1000, 200) with { CacheReadTokens = 600, CacheWriteTokens = 100, ThinkingTokens = 150 },
+            Record(Now.AddDays(-1), "zero", 0, 0) with { CacheReadTokens = 0, CacheWriteTokens = 0, ThinkingTokens = 0 }
+        ], Now, TimeZoneInfo.Utc);
+        var period = stats.ForPeriod(Today.AddDays(-1), Today);
+        Assert.Equal(300, period.NewInput);
+        Assert.Equal(700, period.CacheTotal);
+        Assert.Equal(200, period.Output);
+        Assert.Equal(1200, period.NewInput + period.CacheTotal + period.Output);
+        Assert.Equal(60, period.CacheHitRate);
+        Assert.Equal(1, period.ActiveDays); // A zero-token call is not an active token day.
+        var empty = stats.ForPeriod(Today.AddDays(-2), Today.AddDays(-2));
+        Assert.Equal(0, empty.NewInput + empty.CacheTotal + empty.Output);
+        Assert.Empty(empty.ModelComposition);
+        Assert.Null(empty.CacheHitRate);
+    }
+
+    [Fact]
+    public void AgentUsageKeepsSameModelToolsSeparateAndUsesSelectedDates()
+    {
+        var stats = UsageStatistics.Build([
+            Record(Now, "same", 100, 10),
+            Record(Now, "same", 200, 20) with { Source = "Claude" },
+            Record(Now, "another", 300, 30) with { Source = "Claude" },
+            Record(Now.AddDays(-1), "same", 900, 90)
+        ], Now, TimeZoneInfo.Utc);
+        var period = stats.ForPeriod(Today, Today);
+        var agents = period.Sources;
+        Assert.Equal(2, agents.Count);
+        Assert.Equal("Claude", agents[0].Name);
+        Assert.Equal(550, agents[0].TotalTokens);
+        Assert.Equal(2, agents[0].Turns);
+        Assert.Equal(60, agents[0].CacheReadTokens);
+        Assert.Equal(110, agents[1].TotalTokens);
+        Assert.Equal(period.TotalTokens, agents.Sum(x => x.TotalTokens));
+        Assert.Equal(period.Calls, agents.Sum(x => x.Turns));
+        Assert.Equal(period.CacheWrite, agents.Sum(x => x.CacheWriteTokens));
+        Assert.Equal(period.Thinking, agents.Sum(x => x.ThinkingTokens));
+        Assert.Equal(990, Assert.Single(stats.ForPeriod(Today.AddDays(-1), Today.AddDays(-1)).Sources).TotalTokens);
+        Assert.Empty(stats.ForPeriod(Today.AddDays(-2), Today.AddDays(-2)).Sources);
+    }
 }

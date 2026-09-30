@@ -18,7 +18,7 @@ public sealed class DashboardCoordinator : IDisposable
     public CleanupResult? LastAutoCleanup { get; private set; }
     public AppPaths Paths { get; }
 
-    public DashboardCoordinator(AppPaths? paths = null, ProxyManager? proxy = null)
+    public DashboardCoordinator(AppPaths? paths = null, ProxyManager? proxy = null, NetworkDiagnostics? networkDiagnostics = null)
     {
         paths ??= new AppPaths();
         Paths = paths;
@@ -28,7 +28,7 @@ public sealed class DashboardCoordinator : IDisposable
         sessions = new(paths);
         local = new(paths);
         official = new(paths);
-        diagnostics = new(paths);
+        diagnostics = networkDiagnostics ?? new(paths);
         this.proxy = proxy;
     }
 
@@ -63,6 +63,8 @@ public sealed class DashboardCoordinator : IDisposable
             result.sessionSnapshot,
             result.adapters, diagnostics.Scan());
     }
+
+    public Task<NetworkDiagnosticsReport> RefreshDiagnosticsAsync() => diagnostics.RefreshAsync();
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
     public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateCodex(); }

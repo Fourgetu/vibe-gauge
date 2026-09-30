@@ -40,6 +40,9 @@ public static class UiLocalization
         {
             Attach((FrameworkElement)sender);
         }), true);
+        // A tooltip assigned after Loaded is enrolled when it is first shown.
+        EventManager.RegisterClassHandler(typeof(FrameworkElement), Wpf.ToolTipService.ToolTipOpeningEvent,
+            new Wpf.ToolTipEventHandler((sender, _) => Attach((FrameworkElement)sender)), true);
     }
     public static void SetLanguage(string language)
     {
@@ -81,12 +84,17 @@ public static class UiLocalization
     }
     private static void Attach(FrameworkElement element)
     {
-        if (States.TryGetValue(element, out _)) return;
-        var properties = new Dictionary<DependencyProperty, TranslationState>(); States.Add(element, properties);
+        States.TryGetValue(element, out var properties);
         foreach (var property in Properties(element))
         {
+            if (properties?.ContainsKey(property) == true) continue;
+            // Most layout/template objects have no text. Avoid strong descriptor
+            // subscriptions and translation state for their empty tooltip/content.
+            if (property != Wpf.TextBlock.TextProperty && property != Wpf.AccessText.TextProperty &&
+                element.GetValue(property) is not string && !BindingOperations.IsDataBound(element, property)) continue;
             var bindingPath = BindingOperations.GetBindingExpression(element, property)?.ParentBinding.Path?.Path;
             if (bindingPath is "Name" or "Model" or "Provider" or "Directory") continue;
+            if (properties is null) { properties = new(); States.Add(element, properties); }
             var state = new TranslationState(); properties[property] = state;
             var descriptor = DependencyPropertyDescriptor.FromProperty(property, element.GetType());
             if (descriptor is null) continue;

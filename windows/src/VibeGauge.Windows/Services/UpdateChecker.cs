@@ -10,7 +10,7 @@ public sealed class UpdateChecker(AppPaths paths)
     private DateTimeOffset? attempted;
     private Task<UpdateRelease?>? pending;
     private UpdateRelease? latest;
-    public string Status { get; private set; } = "尚未检查新版";
+    public string Status { get; private set; } = "尚未检查 VibeGauge 新版本";
     private string StateFile => Path.Combine(paths.LocalDataRoot, "update-state.json");
     private sealed record State(DateTimeOffset CheckedAt, string Notified);
     private State Read() { try { return JsonSerializer.Deserialize<State>(File.ReadAllText(StateFile)) ?? new(default, ""); } catch { return new(default, ""); } }
@@ -38,7 +38,7 @@ public sealed class UpdateChecker(AppPaths paths)
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var version = typeof(UpdateChecker).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
             latest = UpdateRelease.Parse(doc.RootElement, version);
-            Status = latest is null ? "未发现适用的 Windows 正式新版" : $"发现 {latest.Version} · {latest.Asset}";
+            Status = latest is null ? "未发现适用的 VibeGauge 软件新版本" : $"发现 {latest.Version} · {latest.Asset}";
             Save(Read() with { CheckedAt = attempted.Value });
             return latest;
         }

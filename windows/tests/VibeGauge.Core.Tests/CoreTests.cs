@@ -170,7 +170,7 @@ public sealed class CoreTests : IDisposable
         Assert.Equal(1, today.Errors);
         Assert.Equal(200, today.AverageLatencyMs);
         var provider = Assert.Single(today.Providers);
-        Assert.Equal("DeepSeek", provider.Name);
+        Assert.Equal("DeepSeek · deepseek.example", provider.Name);
         Assert.Equal(2, provider.Calls);
         var model = Assert.Single(today.Models);
         Assert.Equal("deepseek-chat", model.Model);

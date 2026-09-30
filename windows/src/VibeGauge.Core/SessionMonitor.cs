@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace VibeGauge.Core;
 
 public sealed record SessionContext(string Id, string Tool, string Directory, string Model,
-    double? UsedPercent, long? Window, DateTimeOffset UpdatedAt, int Compactions);
+    double? UsedPercent, long? Window, DateTimeOffset UpdatedAt, int Compactions, IReadOnlyList<CompactionEvent>? CompactionEvents = null);
+public sealed record CompactionEvent(string Id, DateTimeOffset At, long? PreTokens, long? PostTokens);
 public sealed record PendingSession(string Id, string Kind, string Tool, string Directory, DateTimeOffset Since);
 public sealed record SessionSummary(IReadOnlyList<SessionContext> Active, IReadOnlyList<PendingSession> Pending);
 
@@ -23,11 +24,11 @@ public sealed class SessionMonitor(AppPaths paths)
                 if (row.ValueKind != JsonValueKind.Object || Epoch(row.DoubleOrNull("at")) is not { } at ||
                     at > now || now - at >= TimeSpan.FromHours(2)) continue;
                 var transcript = row.StringOrEmpty("transcript");
-                var compactions = 0;
+                CompactionEvent[] events = [];
                 if (File.Exists(transcript))
-                    try { compactions = Refresh(transcript).Compactions.Count(x => x.LocalDateTime.Date == now.LocalDateTime.Date); } catch (IOException) { }
+                    try { events = Refresh(transcript).Compactions.Where(x => x.At.LocalDateTime.Date == now.LocalDateTime.Date).ToArray(); } catch (IOException) { }
                 active.Add(new(entry.Name, "Claude", row.StringOrEmpty("cwd"), row.StringOrEmpty("model"),
-                    row.DoubleOrNull("used_pct"), row.Long("window") is > 0 and var w ? w : null, at, compactions));
+                    row.DoubleOrNull("used_pct"), row.Long("window") is > 0 and var w ? w : null, at, events.Length, events));
             }
 
         var root = Path.Combine(paths.CodexRoot, "sessions");
@@ -43,7 +44,8 @@ public sealed class SessionMonitor(AppPaths paths)
                     active.Add(new(file, "Codex", state.Directory, state.Model,
                         state.Used is { } used && state.Window > 0 ? used * 100d / state.Window : null,
                         state.Window, state.At ?? changed,
-                        state.Compactions.Count(x => x.LocalDateTime.Date == now.LocalDateTime.Date)));
+                        state.Compactions.Count(x => x.At.LocalDateTime.Date == now.LocalDateTime.Date),
+                        state.Compactions.Where(x => x.At.LocalDateTime.Date == now.LocalDateTime.Date).ToArray()));
                 }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
@@ -99,7 +101,15 @@ public sealed class SessionMonitor(AppPaths paths)
             var type = root.StringOrEmpty("type");
             if (type == "compacted" || root.StringOrEmpty("subtype") == "compact_boundary")
             {
-                if (at is { } compacted) state.Compactions.Add(compacted);
+                var id = root.StringOrEmpty("uuid");
+                if (at is { } compacted)
+                {
+                    if (id.Length > 0 && !state.CompactionIds.Add(id)) return;
+                    var metadata = root.TryGetProperty("compactMetadata", out var details) && details.ValueKind == JsonValueKind.Object ? details : root;
+                    long? Tokens(string name) => metadata.TryGetProperty(name, out var token) && token.ValueKind == JsonValueKind.Number &&
+                        token.TryGetInt64(out var value) && value >= 0 ? value : null;
+                    state.Compactions.Add(new(id, compacted, Tokens("preTokens"), Tokens("postTokens")));
+                }
                 state.Used = null;
                 return;
             }
@@ -156,6 +166,7 @@ public sealed class SessionMonitor(AppPaths paths)
         public string Model = "", Directory = "";
         public long? Used, Window;
         public DateTimeOffset? At;
-        public List<DateTimeOffset> Compactions = [];
+        public List<CompactionEvent> Compactions = [];
+        public HashSet<string> CompactionIds = new(StringComparer.Ordinal);
     }
 }

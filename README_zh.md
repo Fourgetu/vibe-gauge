@@ -98,7 +98,9 @@ Windows 版使用原生 WPF 托盘界面，支持窗口拖动与缩放、深浅�
 
 **v1.6.3** 修复 Codex 切换账号后仍显示旧套餐的问题：当前登录信息优先于历史 Team / Pro 回报，API Key 登录不再继承旧订阅额度，额度趋势与通知按账号隔离。详情页明确区分额度回报时间和每 5 秒一次的本地扫描。保留 v1.6.2 的全部监控、二级详情、中英文切换和历史留存功能。详情见 [v1.6.3 更新说明](docs/releases/v1.6.3.md)、[账号与刷新规则](docs/windows-account-quota.md)和[配置与账本迁移说明](docs/windows-parity-implementation.md)。
 
-下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.3/VibeGauge-Setup-v1.6.3.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.3/VibeGauge-Windows-x64-v1.6.3.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.3)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
+**v1.6.5** 补齐统计页四张汇总卡片、Token 分布和独立 Agent 用量；模型明细默认显示前两个，可展开全部。新增 OpenRouter 公开价格一键导入与更新，并支持计价时去除 `-basispoints` 后缀。设置页重排，支持 OpenClash／Mihomo 软路由控制器和加密密钥，修复网络诊断、额度来源、通知及 API 账本迁移。后台继续每五秒刷新，减少重复分配；内存测试未证明真实 150 MB 能稳定降至 100 MB。详见 [v1.6.5 更新说明](docs/releases/v1.6.5.md)。
+
+下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.5/VibeGauge-Setup-v1.6.5.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.5/VibeGauge-Windows-x64-v1.6.5.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.5)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
 
 Windows 构建会生成免安装 ZIP 和当前用户安装包，均不需要预装 .NET 或 Python。需要安装请运行 `VibeGauge-Setup-*.exe`；`VibeGauge.exe` 是托盘主程序，不是安装器。便携使用时应保留同目录的 `VibeGauge.Proxy.exe`。
 

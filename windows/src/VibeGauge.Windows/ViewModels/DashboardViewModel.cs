@@ -91,6 +91,18 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         timer.Start();
     }
 
+    public async Task<NetworkDiagnosticsReport> RefreshDiagnosticsAsync()
+    {
+        var report = await coordinator.RefreshDiagnosticsAsync();
+        if (lastSnapshot is { } snapshot)
+        {
+            snapshot = snapshot with { CapturedAt = DateTimeOffset.Now, Diagnostics = report };
+            Apply(snapshot);
+            SnapshotChanged?.Invoke(this, snapshot);
+        }
+        return report;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<DashboardSnapshot>? SnapshotChanged;
 
@@ -397,7 +409,7 @@ public sealed record QuotaRow(string Label, double Percent, string PercentText, 
         var trust = window.Trust(now);
         var burn = QuotaForecast.Calculate(window, now, profile);
         return new(label, percent, trust == "等待新回报" ? "—" : $"{percent}%",
-            (window.IsRolling ? "释放 " : "重置 ") + Formatting.Countdown(window.ResetsAt, now),
+            window.ResetDescription(now),
             trust is "可能过期" or "等待新回报" ? "Muted" : ToneFor(percent), trust,
             burn is null ? "" : $"预计重置前 {burn.ProjectedPercent}% · {burn.Basis}", burn?.ProjectedPercent >= 100, secondary);
     }
@@ -443,7 +455,9 @@ public sealed record PlatformRow(
     public string ForecastSummary => Forecast is { } forecast ? $"{(forecast.ForecastWarning ? "↗" : "→")} {forecast.Label} {forecast.ForecastText}" : "";
     public bool HasForecast => Forecast is not null;
     public bool ForecastWarning => Forecast?.ForecastWarning == true;
-    public string ResetSummary => "重置 " + string.Join(" · ", Quotas.Select(x => x.Label + " " + x.ResetText.Replace("重置 ", "")));
+    public string ResetSummary => Quotas.All(x => x.ResetText.StartsWith("重置 ", StringComparison.Ordinal))
+        ? "重置 " + string.Join(" · ", Quotas.Select(x => x.Label + " " + x.ResetText[3..]))
+        : string.Join(" · ", Quotas.Select(x => x.Label + " " + x.ResetText));
     public string TrustSummary => string.Join(" · ", Quotas.Where(x => x.TrustText != "官方回报").Select(x => x.TrustText).Distinct());
     public bool HasTrustNote => TrustSummary.Length > 0;
     public static PlatformRow From(PlatformStatus value, ActivityProfile? profile = null, TokenUnit unit = TokenUnit.Chinese)
@@ -541,7 +555,7 @@ public sealed record ApiProviderRow(string Name, string Calls, string Metrics, s
         $"{(value.UnknownUsage > 0 ? "已记录" : "总")} Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
         $"缓存 {Formatting.Tokens(value.CacheReadTokens, unit)} · 写入 {Formatting.Tokens(value.CacheWriteTokens, unit)}",
         $"错误 {value.Errors} · 平均 {value.AverageLatencyMs} ms" + (value.UnknownUsage > 0 ? $" · 用量未知 {value.UnknownUsage} 次" : "") +
-        (value.Quality is { } quality ? "\n" + quality.Description + (quality.Limits.Count > 0 ? $"\n限流回报 {quality.Limits.Count} 项（悬停查看）" : "") : ""),
+        (value.Quality is { } quality ? "\n" + quality.Description + (quality.LimitingQuota is { } quota ? $"\n限流已用 {quota.Window.UsedPercent}% · {quota.Window.ResetDescription(DateTimeOffset.Now)}" : "") + (quality.Limits.Count > 0 ? $"\n限流回报 {quality.Limits.Count} 项（悬停查看）" : "") : ""),
         value.Quality is { } detail ? string.Join("\n", detail.Limits.Select(x => $"{x.Header}: {x.DisplayValue} · {x.CapturedAt.LocalDateTime:MM-dd HH:mm}")) : "");
 }
 

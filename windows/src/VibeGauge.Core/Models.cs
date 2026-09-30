@@ -35,6 +35,10 @@ public sealed record QuotaWindow(
     public int EffectivePercent(DateTimeOffset now) =>
         !IsRolling && ResetsAt is { } reset && reset <= now ? 0 : Math.Clamp(UsedPercent, 0, 100);
 
+    public string ResetDescription(DateTimeOffset now) => ResetsAt is not { } reset ? "未回报重置时间" :
+        IsRolling ? reset <= now ? "待刷新" : $"{Formatting.Countdown(reset, now)} 后释放 {ReleaseCount} 次" :
+        $"重置 {Formatting.Countdown(reset, now)}";
+
     public TimeSpan? Age(DateTimeOffset now) => CapturedAt is { } captured ? now - captured : null;
 
     public string Trust(DateTimeOffset now) =>
@@ -86,8 +90,10 @@ public sealed record InteractionRecord(
     bool? UsageKnown = null,
     bool? ReachedUpstream = null,
     IReadOnlyDictionary<string, string>? RateLimits = null,
-    bool? Completed = null)
+    bool? Completed = null,
+    string ApiHost = "")
 {
+    [JsonIgnore] public string ApiAccount => Source["API · ".Length..] + (ApiHost.Length > 0 ? " · " + ApiHost : "");
     [JsonIgnore] public bool UnknownUsage => Status is >= 200 and < 400 && (Completed == false || UsageKnown == false || UsageKnown is null && TotalTokens == 0);
     [JsonIgnore] public bool Failed => Status == 0 || Status >= 400 || Completed == false;
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;

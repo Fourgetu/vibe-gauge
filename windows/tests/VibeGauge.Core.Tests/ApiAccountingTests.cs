@@ -25,7 +25,7 @@ public sealed class ApiAccountingTests
         var safe = ApiQuality.SafeHeaders(new Dictionary<string, string> { ["authorization"] = "secret", ["set-cookie"] = "secret", ["x-ratelimit-remaining-tokens"] = "12", ["retry-after"] = "30" });
         Assert.Equal(2, safe.Count);
         var q = ApiQuality.Build(Enumerable.Range(1, 20).Select(i => new InteractionRecord(i.ToString(), "API", "m", Now, 1, 0, 0, 1, 0,
-            i == 1 ? 429 : 200, i * 10, true, true, safe)));
+            i == 1 ? 429 : 200, i * 10, true, true, safe)), Now);
         Assert.Equal(100, q.P50); Assert.Equal(190, q.P95); Assert.Equal(200, q.Maximum); Assert.Equal(1, q.RateLimited);
         Assert.Equal(2, q.Limits.Count);
     }

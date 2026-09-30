@@ -23,6 +23,7 @@ public sealed partial class UsageScanner
     private void Hydrate(FileState state)
     {
         if (state.PackedRecords.Length == 0) return;
+        sourceRecords.Remove(state.Source);
         using var buffer = new MemoryStream(Convert.FromBase64String(state.PackedRecords));
         using var compressed = new GZipStream(buffer, CompressionMode.Decompress);
         var records = JsonSerializer.Deserialize<InteractionRecord[]>(compressed) ?? throw new IOException("Invalid retained history archive");
@@ -35,6 +36,7 @@ public sealed partial class UsageScanner
         var cutoff = new DateTimeOffset(now.LocalDateTime.Date.AddDays(-90));
         if (!coldDirty && cache.ColdTimeZone == TimeZoneInfo.Local.Id &&
             !cache.Files.Values.Any(s => CanCompact(s) && s.Records.Values.Any(x => x.Timestamp < cutoff))) return;
+        sourceRecords.Clear();
         if (!cache.Files.Values.Any(s => CanCompact(s) && (s.PackedRecords.Length > 0 || s.Records.Values.Any(x => x.Timestamp < cutoff))))
         {
             if (coldDirty) { cache.ColdStatistics = null; cache.ColdTotals.Clear(); cache.ColdBloom = []; cacheDirty = true; coldDirty = false; }

@@ -52,8 +52,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
                     Foreground = stale ? Brush("TextMutedBrush") : QuotaVisuals.BrushForPercent(percent),
                     Margin = new Thickness(0, 0, 0, 4),
                     ToolTip = $"上次回报 {quota.Window.UsedPercent}% · 采集 {quota.Window.CapturedAt?.ToLocalTime():yyyy-MM-dd HH:mm:ss}" });
-                section.Children.Add(InsightUi.Text(quota.Window.ResetsAt is { } reset
-                    ? $"重置 {Formatting.Countdown(reset, now)} · {reset.ToLocalTime():MM-dd HH:mm}" : "未回报重置时间"));
+                section.Children.Add(InsightUi.Text(quota.Window.ResetDescription(now)));
             }
         }
         var forecasts = windows.Concat(provider.ExtraQuotas ?? []).Select(x => (Quota: x, Burn: QuotaForecast.Calculate(x.Window, now, snapshot.Statistics?.ProfileFor(provider.Name))))
@@ -92,6 +91,8 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
                     (session.UsedPercent is { } percent ? $"上下文 {percent:0.#}%" : "暂无上下文比例") +
                     (session.Window is { } capacity ? $" / {Tokens(capacity)} Token" : "")));
                 section.Children.Add(InsightUi.Text($"最后活动 {session.UpdatedAt.ToLocalTime():MM-dd HH:mm} · 今日压缩 {session.Compactions} 次"));
+                foreach (var compact in (session.CompactionEvents ?? []).TakeLast(5))
+                    section.Children.Add(InsightUi.Text($"压缩 {compact.At.ToLocalTime():HH:mm} · Token {compact.PreTokens?.ToString("N0") ?? "?"} → {compact.PostTokens?.ToString("N0") ?? "?"}"));
             }
         }
         var processes = snapshot.Processes.ProviderProcesses?.Where(x => ProviderDetails.Matches(provider.Name, x.Provider)).ToArray() ?? [];
@@ -227,9 +228,9 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             value.VerticalAlignment = VerticalAlignment.Center;
             value.Margin = new Thickness(0);
             ring.Children.Add(value);
-            ring.ToolTip = $"{quota.Label}\n{trust}\n上次回报 {w.UsedPercent}%\n采集 {w.CapturedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}\n重置 {w.ResetsAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}";
+            ring.ToolTip = $"{quota.Label}\n{trust}\n上次回报 {w.UsedPercent}%\n采集 {w.CapturedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}\n{w.ResetDescription(now)} · {w.ResetsAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}";
             column.Children.Add(ring);
-            foreach (var line in new[] { trust, w.ResetsAt is null ? "未回报重置时间" : $"重置 {Formatting.Countdown(w.ResetsAt, now)}",
+            foreach (var line in new[] { trust, w.ResetDescription(now),
                 w.Age(now) is { } age ? $"额度回报 {Math.Max(0, age.TotalMinutes):N0} 分钟前" : "未回报采集时间" })
             {
                 var text = InsightUi.Text(line);
