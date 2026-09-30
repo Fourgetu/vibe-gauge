@@ -4,8 +4,11 @@ using System.Text.Json;
 
 namespace VibeGauge.Core;
 
-public sealed class QuotaScanner(AppPaths paths)
+public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient = null) : IDisposable
 {
+    private readonly CodexQuotaRefresh? codexLive = codexClient is null ? null : new(codexClient);
+    public void InvalidateCodex() => codexLive?.Invalidate();
+    public void Dispose() => codexLive?.Dispose();
     private static readonly HttpClient OllamaClient = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false })
     { Timeout = TimeSpan.FromMilliseconds(450), MaxResponseContentBufferSize = 512 * 1024 };
     private DateTimeOffset ollamaMeasuredAt;
@@ -114,10 +117,11 @@ public sealed class QuotaScanner(AppPaths paths)
         {
             codexFiles.Clear();
             codexExtra = Array.Empty<NamedQuota>();
-            return new("Codex", tier, running, sessionCount,
+            var unavailable = new PlatformStatus("Codex", tier, running, sessionCount,
                 login.ReadFailed ? ProviderDataState.ReadFailed : ProviderDataState.NoQuota,
                 login.ReadFailed ? "当前登录信息读取失败；未采用历史订阅额度。" : "当前本机登录为 API Key；不使用历史订阅套餐和额度。",
                 ExtraQuotas: codexExtra, QuotaScope: login.Scope);
+            return codexLive?.Apply(unavailable, null) ?? unavailable;
         }
         // Quota events do not identify their account. Keep only reports after the
         // observed login boundary; token refreshes for the same identity retain it.
@@ -176,8 +180,11 @@ public sealed class QuotaScanner(AppPaths paths)
         if (!codexExtra.SequenceEqual(extra)) codexExtra = extra.ToArray();
         var detail = login.Present && newest is null ? "等待当前登录的新额度回报；旧会话额度不代表当前账号。" :
             !login.Present && newest is not null ? "本地历史额度回报；未验证当前登录套餐。" : StateDetail(state);
-        return new("Codex", tier, running, sessionCount, state, detail, newest?.Five, newest?.Weekly,
+        var local = new PlatformStatus("Codex", tier, running, sessionCount, state, detail, newest?.Five, newest?.Weekly,
             ExtraQuotas: codexExtra, QuotaScope: login.Present ? login.Scope : "");
+        var request = login.Present && (login.KnownPlan || login.Tier == "ChatGPT 登录") && login.UpdatedAt is { } updated
+            ? new CodexQuotaRequest(login.Scope, login.Tier, login.KnownPlan, updated) : null;
+        return codexLive?.Apply(local, request) ?? local;
     }
 
     private static string WindowLabel(QuotaWindow window) => window.Window.TotalDays >= 1

@@ -33,7 +33,7 @@ internal static class ProviderDetailPanelChecks
                 UsageDataState.Available, 12, 1200000, 900000, 10000, 34000, 2000, "")).ToArray();
             var records = sources.Select(x => new InteractionRecord(x.Name, x.Name, "test-model-long-display-name", now,
                 x.ContextTokens, x.CacheReadTokens, x.CacheWriteTokens, x.OutputTokens, x.ThinkingTokens)).ToArray();
-            var providers = names.Select((name, i) => new PlatformStatus(name, i < 3 ? "Pro" : "本地", true, 1,
+            var providers = names.Select((name, i) => new PlatformStatus(name, name == "Codex" ? "Plus" : i < 3 ? "Pro" : "本地", true, 1,
                 ProviderDataState.Available, "已检测到本地记录", i < 3 ? five : null, i < 3 ? week : null,
                 DesktopTokens: i < 3 ? null : new(sources[i], sources[i] with { Turns = 120, ContextTokens = 12000000 }, true),
                 Metadata: new([new("鉴权方式", "已登录")], ProviderDetails.Sources(paths, new(name, "", false, 0, ProviderDataState.Available, ""))),
@@ -97,6 +97,33 @@ internal static class ProviderDetailPanelChecks
                     Assert.True(window.PlansView.IsVisible);
                 }
             }
+            var pro = providers.Single(x => x.Name == "Codex") with
+            {
+                Tier = "Pro", FiveHour = null, Weekly = week with { UsedPercent = 44 }, ExtraQuotas = [],
+                Detail = "当前账号官方额度"
+            };
+            var proSnapshot = snapshot with { Platforms = providers.Select(x => x.Name == "Codex" ? pro : x).ToArray() };
+            foreach (var light in new[] { false, true })
+            {
+                window.Width = 420;
+                apply.Invoke(vm, [proSnapshot]);
+                window.SetThemeForCapture(light);
+                Layout(window);
+                var row = (PlatformRow)Card("Codex").DataContext;
+                Assert.Equal("W", Assert.Single(row.Quotas).Label);
+                Capture(window, $"codex-pro-weekly-overview-{(light ? "light" : "dark")}.png", light);
+                Click("Codex");
+                Assert.Contains("7 天窗口", Text(panel));
+                Assert.DoesNotContain("5 小时窗口", Text(panel));
+                var arcs = Descendants<System.Windows.Shapes.Path>(panel).Where(x => x.Data is PathGeometry).ToArray();
+                Assert.Single(arcs);
+                Assert.Equal(QuotaVisuals.ColorForPercent(44), ((SolidColorBrush)arcs[0].Stroke).Color);
+                Capture(window, $"codex-pro-weekly-detail-{(light ? "light" : "dark")}.png", light);
+                Back();
+            }
+            apply.Invoke(vm, [snapshot]);
+            window.SetThemeForCapture(false);
+            Layout(window);
             foreach (var name in new[] { "Claude", "Gemini", "PI-Desktop", "ZCode", "DSH Desktop" })
             {
                 Click(name);
@@ -158,6 +185,7 @@ internal static class ProviderDetailPanelChecks
             Assert.Contains("累计用量 · 本地留存", Text(panel));
             Assert.DoesNotContain("暂无该客户端的用量记录；未记录不等于实际用量为零。", Text(panel));
             vm.CloseProviderDetail(); apply.Invoke(vm, [snapshot]); vm.SelectTab(0); overview.ScrollToTop();
+            Layout(window);
             window.Width = 420; UiLocalization.SetLanguage("en");
             foreach (var light in new[] { false, true })
             {

@@ -428,5 +428,22 @@
   "当前登录信息读取失败；未采用历史订阅额度。": "Current login could not be read; historical subscription quotas were not used.",
   "当前本机登录为 API Key；不使用历史订阅套餐和额度。": "Local sign-in uses an API key; historical subscription plans and quotas are not used.",
   "等待当前登录的新额度回报；旧会话额度不代表当前账号。": "Waiting for a quota report from the current login; old sessions do not represent this account.",
-  "本地历史额度回报；未验证当前登录套餐。": "Historical local quota report; the current sign-in plan has not been verified."
+  "本地历史额度回报；未验证当前登录套餐。": "Historical local quota report; the current sign-in plan has not been verified.",
+  "当前账号官方额度": "Official quota for the current account",
+  "当前账号官方额度；每 60 秒自动查询，手动刷新可立即重试。": "Official quota for the current account; checked every 60 seconds. Refresh to retry now.",
+  "正在查询当前账号官方额度": "Checking the current account's official quota",
+  "官方尚未返回可用额度窗口": "No quota windows returned by the service yet",
+  "官方额度查询已取消": "Official quota request canceled",
+  "官方额度查询失败，请检查登录和网络": "Official quota request failed; check sign-in and network",
+  "保留当前账号上次成功回报。": "Keeping this account's last successful report.",
+  "登录信息已变化，等待重新查询当前账号": "Sign-in changed; waiting to query the current account",
+  "未找到 Codex CLI，请安装或启动 Codex 客户端后刷新": "Codex CLI not found; install or start Codex, then refresh",
+  "查询期间登录信息发生变化，等待重新查询": "Sign-in changed during the request; waiting to retry",
+  "额度查询已取消": "Quota request canceled",
+  "官方额度查询超时，请检查网络后刷新": "Official quota request timed out; check the network and refresh",
+  "无法读取 Codex 官方额度，请检查客户端登录与网络": "Cannot read official Codex quota; check client sign-in and network",
+  "Codex CLI 未使用 ChatGPT 订阅登录，请重新登录后刷新": "Codex CLI is not signed in to a ChatGPT subscription; sign in again and refresh",
+  "账号套餐已变化，等待重新查询": "Account plan changed; waiting to retry",
+  "Codex 官方额度查询失败，请检查登录、网络或更新 Codex 客户端": "Official Codex quota request failed; check sign-in, network, or update Codex",
+  "官方额度套餐与当前账号不一致，等待重新查询": "Reported quota plan does not match the current account; waiting to retry"
 }

@@ -382,7 +382,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private void Raise(string? name) => PropertyChanged?.Invoke(this, new(name));
-    public void Dispose() => timer.Stop();
+    public void Dispose() { timer.Stop(); coordinator.Dispose(); }
 }
 
 public sealed record QuotaRow(string Label, double Percent, string PercentText, string ResetText, string Tone,

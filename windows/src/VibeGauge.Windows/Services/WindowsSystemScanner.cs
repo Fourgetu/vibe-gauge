@@ -297,7 +297,8 @@ public sealed class WindowsSystemScanner
         {
             var command = process.CommandLine.Length > 0 ? process.CommandLine : process.Name;
             if (IsClaude(command)) matched[process.ProcessId] = "claude";
-            else if (IsCodex(command)) matched[process.ProcessId] = "codex";
+            // A short-lived quota helper belongs to VibeGauge, not a user session.
+            else if (IsCodex(command) && process.ParentProcessId != Environment.ProcessId) matched[process.ProcessId] = "codex";
             else if (IsGemini(command)) matched[process.ProcessId] = "gemini";
             else if (IsPiDesktop(process)) matched[process.ProcessId] = "pi-desktop";
             else if (IsZCode(process)) matched[process.ProcessId] = "zcode";

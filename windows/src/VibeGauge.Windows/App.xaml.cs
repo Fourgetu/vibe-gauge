@@ -36,7 +36,8 @@ public partial class App : System.Windows.Application
             AttachConsole();
             try
             {
-                var snapshot = await new DashboardCoordinator().ScanAsync();
+                using var coordinator = new DashboardCoordinator();
+                var snapshot = await coordinator.ScanAsync();
                 Console.WriteLine(JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
                 Shutdown(0);
             }

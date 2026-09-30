@@ -52,17 +52,16 @@
                             <StackPanel>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,4">
                                     <TextBlock DockPanel.Dock="Right" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" Foreground="{StaticResource TextMutedBrush}" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding CanOpenDetail, Converter={StaticResource BoolToVisibility}}" />
-                                    <TextBlock DockPanel.Dock="Right" Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="5,0,0,0" />
-                                    <DockPanel LastChildFill="True">
-                                        <Ellipse DockPanel.Dock="Left" Width="6" Height="6" Margin="0,0,5,0" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" />
-                                        <Border DockPanel.Dock="Right" CornerRadius="3" Padding="4,1" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowTier, Converter={StaticResource BoolToVisibility}}">
-                                            <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="{StaticResource GoodDimBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Background" Value="{StaticResource LocalDimBrush}" /></DataTrigger></Style.Triggers></Style></Border.Style>
-                                            <TextBlock Text="{Binding Tier}" FontSize="10.5" FontWeight="Bold" MaxWidth="100" TextTrimming="CharacterEllipsis">
-                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource GoodBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Foreground" Value="{StaticResource LocalBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-                                            </TextBlock>
-                                        </Border>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    </DockPanel>
+                                    <!-- Keep provider identity ahead of optional session text in narrow cards. -->
+                                    <Ellipse DockPanel.Dock="Left" Width="6" Height="6" Margin="0,0,5,0" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" />
+                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5" MaxWidth="{Binding TitleMaxWidth}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <Border DockPanel.Dock="Left" CornerRadius="3" Padding="4,1" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowTier, Converter={StaticResource BoolToVisibility}}">
+                                        <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="{StaticResource GoodDimBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Background" Value="{StaticResource LocalDimBrush}" /></DataTrigger></Style.Triggers></Style></Border.Style>
+                                        <TextBlock Text="{Binding Tier}" FontSize="10.5" FontWeight="Bold" MaxWidth="100" TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource GoodBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Foreground" Value="{StaticResource LocalBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                    <TextBlock Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="5,0,0,0" />
                                 </DockPanel>
                                 <TextBlock Text="{Binding CompactQuotaSummary}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding ShowCompactQuotas, Converter={StaticResource BoolToVisibility}}" />
                                 <Grid Visibility="{Binding ShowQuotaMeters, Converter={StaticResource BoolToVisibility}}">

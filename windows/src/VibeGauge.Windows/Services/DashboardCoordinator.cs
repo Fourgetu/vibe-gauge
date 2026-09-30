@@ -2,7 +2,7 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-public sealed class DashboardCoordinator
+public sealed class DashboardCoordinator : IDisposable
 {
     private readonly WindowsSystemScanner system = new();
     private readonly QuotaScanner quotas;
@@ -22,7 +22,7 @@ public sealed class DashboardCoordinator
     {
         paths ??= new AppPaths();
         Paths = paths;
-        quotas = new(paths);
+        quotas = new(paths, new CodexAppServerQuotaClient(paths));
         usage = new(paths);
         sampler = new(paths);
         sessions = new(paths);
@@ -65,7 +65,8 @@ public sealed class DashboardCoordinator
     }
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
-    public void InvalidateOfficial() => official.Invalidate();
+    public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateCodex(); }
+    public void Dispose() => quotas.Dispose();
     public bool EnsureDurableHistory()
     {
         var result = usage.Scan();

@@ -25,12 +25,18 @@ internal static class ProviderCardChecks
             new PlatformStatus("ZCode", "", true, 1, ProviderDataState.Available, detail, CompactDetail: "今日 120万 · 120 次\n累计 900万 Token"),
             new PlatformStatus("PI-Desktop", "", true, 1, ProviderDataState.Available, detail, CompactDetail: "今日 120万 · 120 次\n累计 900万 Token"),
             new PlatformStatus("Ollama", "本地", false, 0, ProviderDataState.NotRunning, "未运行", ModelCount: 0),
+            new PlatformStatus("WorkBuddy", "", true, 1, ProviderDataState.Available, detail, CompactDetail: "今日 120万 · 120 次\n累计 900万 Token"),
+            new PlatformStatus("DSH Desktop", "", true, 1, ProviderDataState.Available, detail, CompactDetail: "今日 120万 · 120 次\n累计 900万 Token"),
             new PlatformStatus("自定义站点 · 12345678", "sub2api", false, 0, ProviderDataState.Available,
                 detail, Weekly: quota, AlwaysShowDetail: true, CompactDetail: "钱包余额 1234567.89 USD\n今日 120万 Token · 累计 900万 Token")
         }.Select(x => PlatformRow.From(x)).ToArray();
         foreach (var light in new[] { false, true })
         foreach (var width in new[] { 390, 490 })
+        foreach (var codexTier in new[] { "Pro", "API Key" })
         {
+            cards[1] = PlatformRow.From(codexTier == "API Key"
+                ? new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.NoQuota, "API Key 模式无订阅额度")
+                : new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.Available, "本地额度数据", Weekly: quota));
             palette.IsLight = light;
             var panel = new PlansPanel { DataContext = new { Platforms = cards } };
             var window = new Window { Content = panel, Width = width, Height = 800, Left = -20000, Top = -20000,
@@ -43,7 +49,14 @@ internal static class ProviderCardChecks
                 window.UpdateLayout();
                 var borders = Descendants<Border>(panel).Where(x => x.DataContext is PlatformRow && x.ToolTip is string)
                     .ToDictionary(x => ((PlatformRow)x.DataContext).Name);
-                Assert.Equal(7, borders.Count);
+                Assert.Equal(cards.Length, borders.Count);
+                var codexTitle = Descendants<TextBlock>(borders["Codex"]).Single(x => x.Text == "Codex");
+                var codexBadge = Descendants<TextBlock>(borders["Codex"]).Single(x => x.Text == codexTier);
+                AssertFitsText(codexTitle);
+                AssertFitsText(codexBadge);
+                var titleRight = codexTitle.TranslatePoint(new Point(codexTitle.ActualWidth, 0), panel).X;
+                var badgeLeft = codexBadge.TranslatePoint(new Point(), panel).X;
+                Assert.True(titleRight <= badgeLeft, "Codex name overlaps its authentication badge");
                 var gemini = borders["Gemini"].TranslatePoint(new Point(), panel);
                 var zcode = borders["ZCode"].TranslatePoint(new Point(), panel);
                 Assert.Equal(gemini.Y, zcode.Y);
@@ -55,13 +68,15 @@ internal static class ProviderCardChecks
                 foreach (var border in borders.Values)
                 {
                     var row = (PlatformRow)border.DataContext;
+                    if (!row.IsWide)
+                        AssertFitsText(Descendants<TextBlock>(border).Single(x => x.Text == row.Name));
                     Assert.Equal(row.FullTooltip, border.ToolTip);
                     Assert.Contains(row.Detail, (string)border.ToolTip);
                     Assert.Equal(60000, ToolTipService.GetShowDuration(border));
                 }
                 var directory = Path.Combine(AppContext.BaseDirectory, "provider-captures");
                 Directory.CreateDirectory(directory);
-                Capture(panel, Path.Combine(directory, $"cards-{(light ? "light" : "dark")}-{width}.png"), light);
+                Capture(panel, Path.Combine(directory, $"cards-{(light ? "light" : "dark")}-{width}-{codexTier.Replace(" ", "-")}.png"), light);
                 var tooltip = new ToolTip { Content = cards[^1].FullTooltip, Style = (Style)Application.Current.FindResource(typeof(ToolTip)) };
                 tooltip.ApplyTemplate();
                 tooltip.Measure(new Size(390, double.PositiveInfinity));
@@ -72,6 +87,18 @@ internal static class ProviderCardChecks
             }
             finally { window.Close(); }
         }
+    }
+
+    private static void AssertFitsText(TextBlock text)
+    {
+        var untrimmed = new TextBlock
+        {
+            Text = text.Text, FontFamily = text.FontFamily, FontSize = text.FontSize,
+            FontWeight = text.FontWeight, FontStyle = text.FontStyle, FontStretch = text.FontStretch
+        };
+        untrimmed.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Assert.True(text.ActualWidth + 0.5 >= untrimmed.DesiredSize.Width,
+            $"'{text.Text}' is clipped: needs {untrimmed.DesiredSize.Width:F1}px, has {text.ActualWidth:F1}px");
     }
 
     private static void Capture(FrameworkElement element, string path, bool light)

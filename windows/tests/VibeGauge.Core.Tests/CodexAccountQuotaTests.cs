@@ -161,6 +161,33 @@ public sealed class CodexAccountQuotaTests : IDisposable
     }
 
     [Fact]
+    public void CurrentProWithoutFreshLogsCanUseItsOfficialQuotaResponse()
+    {
+        Login("pro", "current", now.AddMinutes(-10));
+        File.WriteAllText(Log, Quota("team", now.AddHours(-2), 99));
+        var client = new OfficialClient(now);
+        using var scanner = new QuotaScanner(Paths, client);
+        Read(scanner);
+        var result = Read(scanner);
+        Assert.Equal("Pro", result.Tier);
+        Assert.Equal(44, result.Weekly?.UsedPercent);
+        Assert.Null(result.FiveHour);
+        Assert.Equal(result.QuotaScope, client.Request?.Scope);
+        Assert.DoesNotContain("current", result.QuotaScope);
+        Assert.DoesNotContain("FIXTURE-SECRET", JsonSerializer.Serialize(result));
+    }
+
+    private sealed class OfficialClient(DateTimeOffset captured) : ICodexQuotaClient
+    {
+        public CodexQuotaRequest? Request { get; private set; }
+        public Task<CodexQuotaResult> ReadAsync(CodexQuotaRequest account, CancellationToken token)
+        {
+            Request = account;
+            return Task.FromResult(new CodexQuotaResult(Weekly: new(44, captured.AddDays(3), captured, TimeSpan.FromDays(7))));
+        }
+    }
+
+    [Fact]
     public void DifferentAccountsDoNotShareQuotaBurnSamples()
     {
         var sampler = new QuotaSampler(Paths);

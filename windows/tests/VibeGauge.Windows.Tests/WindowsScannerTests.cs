@@ -7,6 +7,20 @@ namespace VibeGauge.Windows.Tests;
 
 public sealed class WindowsScannerTests
 {
+    [Fact]
+    public void OwnedQuotaHelperDoesNotIncreaseCodexSessionCount()
+    {
+        var processes = new Dictionary<int, ProcessSnapshot>
+        {
+            [701101] = new(701101, Environment.ProcessId, "codex.exe", "codex.exe app-server", @"C:\Codex\codex.exe", 100, null, 1),
+            [701102] = new(701102, 9999, "codex.exe", "codex.exe app-server", @"C:\Codex\codex.exe", 100, null, 1)
+        };
+        var method = typeof(WindowsSystemScanner).GetMethod("BuildProcessReport", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var report = (ProcessReport)method.Invoke(null, [processes, new HashSet<int>(), new HashSet<int>(), Array.Empty<string>()])!;
+        Assert.Equal(1, report.CodexSessions);
+        Assert.DoesNotContain(report.ProviderProcesses!, x => x.ProcessId == 701101);
+    }
+
     [Theory]
     [InlineData("PI-Desktop.exe", "C:\\Program Files\\PI-Desktop\\PI-Desktop.exe", true)]
     [InlineData("pi-desktop.exe", "", true)]

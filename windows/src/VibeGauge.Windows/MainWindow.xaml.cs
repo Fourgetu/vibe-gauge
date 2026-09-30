@@ -155,7 +155,11 @@ public partial class MainWindow : Window
 
     private void Hide_Click(object sender, RoutedEventArgs e) => Hide();
 
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await viewModel.RefreshAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        viewModel.InvalidateOfficial();
+        await viewModel.RefreshAsync();
+    }
 
     private async void ToggleProxy_Click(object sender, RoutedEventArgs e) => await viewModel.ToggleProxyAsync();
 
