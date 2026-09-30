@@ -64,7 +64,12 @@ public sealed record PlatformStatus(
     DesktopTokenDisplay? DesktopTokens = null,
     ProviderTokenTotals? ReportedTokens = null,
     ProviderMetadata? Metadata = null,
-    IReadOnlyList<NamedQuota>? ExtraQuotas = null);
+    IReadOnlyList<NamedQuota>? ExtraQuotas = null,
+    string QuotaScope = "")
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string QuotaHistoryKey => QuotaScope.Length == 0 ? Name : Name + "|" + QuotaScope;
+}
 
 public sealed record InteractionRecord(
     string Id,

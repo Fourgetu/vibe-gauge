@@ -29,7 +29,7 @@ public sealed class AttentionPolicy
             foreach (var p in snapshot.Platforms)
                 foreach (var quota in ProviderDetails.Windows(p).Concat(p.ExtraQuotas ?? []))
                     if (!quota.Window.IsEstimate && quota.Window.Trust(now) == "官方回报" && quota.Window.EffectivePercent(now) >= Math.Clamp(options.QuotaThreshold, 50, 100))
-                        Emit($"quota:{p.Name}:{quota.Label}:{quota.Window.ResetsAt?.ToUnixTimeSeconds()}", $"{p.Name} {quota.Label} 已用 {quota.Window.EffectivePercent(now)}%", TimeSpan.FromDays(32));
+                        Emit($"quota:{p.QuotaHistoryKey}:{quota.Label}:{quota.Window.ResetsAt?.ToUnixTimeSeconds()}", $"{p.Name} {quota.Label} 已用 {quota.Window.EffectivePercent(now)}%", TimeSpan.FromDays(32));
         if (options.MemoryNotifications && snapshot.System.AvailableMemoryPercent <= Math.Clamp(options.MemoryFreeThreshold, 1, 50))
             Emit("memory", $"可用内存剩余 {snapshot.System.AvailableMemoryPercent}%", TimeSpan.FromMinutes(30));
         if (options.DiskNotifications && snapshot.System.DiskFreeGb <= Math.Clamp(options.DiskFreeGbThreshold, 1, 500))

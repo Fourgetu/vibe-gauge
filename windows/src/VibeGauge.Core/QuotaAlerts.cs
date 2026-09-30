@@ -27,7 +27,7 @@ public sealed class QuotaAlerts
                 (p.SecondaryPoolName + " 5H", p.SecondaryFiveHour), (p.SecondaryPoolName + " Weekly", p.SecondaryWeekly) })
             {
                 if (w is null || w.IsEstimate || w.IsRolling || w.Trust(now) != "官方回报" || w.ResetsAt is not { } reset) continue;
-                var key = p.Name + "|" + label;
+                var key = p.QuotaHistoryKey + "|" + label;
                 observed.Add(key);
                 if (!states.TryGetValue(key, out var state) || state.Reset <= now && reset > state.Reset)
                     states[key] = state = new() { Reset = reset };

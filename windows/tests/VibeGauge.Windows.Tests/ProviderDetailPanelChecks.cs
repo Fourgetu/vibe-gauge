@@ -83,6 +83,8 @@ internal static class ProviderDetailPanelChecks
                     if (name == "Codex")
                     {
                         Assert.Contains("Codex Spark · 5 小时", Text(panel));
+                        Assert.Contains(Text(panel), x => x.StartsWith("额度回报 "));
+                        Assert.DoesNotContain(Text(panel), x => x.StartsWith("采集于 "));
                         var ringColors = Descendants<System.Windows.Shapes.Path>(panel).Where(x => x.Data is PathGeometry)
                             .Select(x => ((SolidColorBrush)x.Stroke).Color).ToArray();
                         Assert.Contains(QuotaVisuals.ColorForPercent(42), ringColors);

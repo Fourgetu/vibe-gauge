@@ -96,9 +96,9 @@ Windows 版使用原生 WPF 托盘界面，支持窗口拖动与缩放、深浅�
 
 **v1.6.0** 新增 [ZCode 用量监控](docs/windows-zcode.md)，Gemini 与 ZCode 左右排列；压缩 PI-Desktop/Ollama 和自定义 sub2api 卡片高度，悬停查看完整明细。详情见 [v1.6.0 更新说明](docs/releases/v1.6.0.md)。
 
-**v1.6.2** 新增 WorkBuddy / DSH Desktop 监控、客户端显示选择、采用上游圆环颜色的二级详情，以及成本/套餐估算、API 诊断、AGY 桥接、可选维护与网络工具、中英文切换和历史压缩。同时修复六项额度与记账行为差异，保留 [Token 显示单位开关](docs/windows-total-tokens.md#display-unit-switch-v161)。详情见 [v1.6.2 更新说明](docs/releases/v1.6.2.md)和[配置与账本迁移说明](docs/windows-parity-implementation.md)。
+**v1.6.3** 修复 Codex 切换账号后仍显示旧套餐的问题：当前登录信息优先于历史 Team / Pro 回报，API Key 登录不再继承旧订阅额度，额度趋势与通知按账号隔离。详情页明确区分额度回报时间和每 5 秒一次的本地扫描。保留 v1.6.2 的全部监控、二级详情、中英文切换和历史留存功能。详情见 [v1.6.3 更新说明](docs/releases/v1.6.3.md)、[账号与刷新规则](docs/windows-account-quota.md)和[配置与账本迁移说明](docs/windows-parity-implementation.md)。
 
-下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.2/VibeGauge-Setup-v1.6.2.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.2/VibeGauge-Windows-x64-v1.6.2.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.2)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
+下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.3/VibeGauge-Setup-v1.6.3.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.3/VibeGauge-Windows-x64-v1.6.3.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.3)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
 
 Windows 构建会生成免安装 ZIP 和当前用户安装包，均不需要预装 .NET 或 Python。需要安装请运行 `VibeGauge-Setup-*.exe`；`VibeGauge.exe` 是托盘主程序，不是安装器。便携使用时应保留同目录的 `VibeGauge.Proxy.exe`。
 

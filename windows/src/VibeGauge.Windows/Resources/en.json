@@ -421,5 +421,12 @@
   "暂无额度": "No quota available",
   "最近 {0} 个完整轮次": "Last {0} complete turns",
   "{0}% 命中": "{0}% hit rate",
-  "暂无完整轮次": "No complete turns yet"
+  "暂无完整轮次": "No complete turns yet",
+  "额度回报 {0} 分钟前": "Quota reported {0} min ago",
+  "登录信息不可读": "Login information unavailable",
+  "ChatGPT 登录": "ChatGPT sign-in",
+  "当前登录信息读取失败；未采用历史订阅额度。": "Current login could not be read; historical subscription quotas were not used.",
+  "当前本机登录为 API Key；不使用历史订阅套餐和额度。": "Local sign-in uses an API key; historical subscription plans and quotas are not used.",
+  "等待当前登录的新额度回报；旧会话额度不代表当前账号。": "Waiting for a quota report from the current login; old sessions do not represent this account.",
+  "本地历史额度回报；未验证当前登录套餐。": "Historical local quota report; the current sign-in plan has not been verified."
 }

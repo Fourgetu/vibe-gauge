@@ -13,6 +13,8 @@ public sealed class QuotaScanner(AppPaths paths)
     private readonly Dictionary<string, CodexFileQuota> codexFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProviderMetadata> metadataCache = new(StringComparer.Ordinal);
     private IReadOnlyList<NamedQuota> codexExtra = Array.Empty<NamedQuota>();
+    private string? codexAccountScope;
+    private DateTimeOffset? codexQuotaSince;
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
         UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null)
@@ -101,7 +103,25 @@ public sealed class QuotaScanner(AppPaths paths)
     private PlatformStatus ReadCodex(int sessionCount)
     {
         var running = sessionCount > 0;
-        var tier = ReadCodexTier();
+        var login = ReadCodexLogin();
+        var tier = login.Tier;
+        if (codexAccountScope != login.Scope)
+        {
+            codexAccountScope = login.Scope;
+            codexQuotaSince = login.UpdatedAt;
+        }
+        if (login.ApiKey || login.ReadFailed)
+        {
+            codexFiles.Clear();
+            codexExtra = Array.Empty<NamedQuota>();
+            return new("Codex", tier, running, sessionCount,
+                login.ReadFailed ? ProviderDataState.ReadFailed : ProviderDataState.NoQuota,
+                login.ReadFailed ? "当前登录信息读取失败；未采用历史订阅额度。" : "当前本机登录为 API Key；不使用历史订阅套餐和额度。",
+                ExtraQuotas: codexExtra, QuotaScope: login.Scope);
+        }
+        // Quota events do not identify their account. Keep only reports after the
+        // observed login boundary; token refreshes for the same identity retain it.
+        bool AfterLogin(DateTimeOffset at) => codexQuotaSince is null || at >= codexQuotaSince.Value.AddSeconds(-1);
         var buckets = new Dictionary<string, CodexBucket>(StringComparer.OrdinalIgnoreCase);
         CodexLimitHit? limitHit = null;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -123,9 +143,11 @@ public sealed class QuotaScanner(AppPaths paths)
                         codexFiles[file] = cached;
                     }
                     seen.Add(file);
-                    if (cached.Parsed.Hit is { } hit && (limitHit is null || hit.At > limitHit.At)) limitHit = hit;
+                    if (login.KnownPlan && cached.Parsed.Buckets.TryGetValue("codex", out var main) &&
+                        main.Plan.Length > 0 && Formatting.CodexPlanLabel(main.Plan) != tier) continue;
+                    if (cached.Parsed.Hit is { } hit && AfterLogin(hit.At) && (limitHit is null || hit.At > limitHit.At)) limitHit = hit;
                     foreach (var (id, bucket) in cached.Parsed.Buckets)
-                        if (!buckets.TryGetValue(id, out var previous) || bucket.Captured > previous.Captured)
+                        if (AfterLogin(bucket.Captured) && (!buckets.TryGetValue(id, out var previous) || bucket.Captured > previous.Captured))
                             buckets[id] = bucket;
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
@@ -139,7 +161,7 @@ public sealed class QuotaScanner(AppPaths paths)
             var exhausted = new QuotaWindow(100, latest.Reset ?? newest?.Weekly?.ResetsAt, latest.At, TimeSpan.FromDays(7));
             newest = newest is null ? new(latest.At, null, exhausted, "", "") : newest with { Weekly = exhausted };
         }
-        if (newest?.Plan.Length > 0) tier = Formatting.CodexPlanLabel(newest.Plan);
+        if (!login.KnownPlan && newest?.Plan.Length > 0) tier = Formatting.CodexPlanLabel(newest.Plan);
         var state = newest is null
             ? tier == "未登录" ? ProviderDataState.NotSignedIn : ProviderDataState.NoQuota
             : QuotaState(tier, newest.Five, newest.Weekly);
@@ -152,42 +174,68 @@ public sealed class QuotaScanner(AppPaths paths)
             if (bucket.Weekly is { } week) extra.Add(new(label + " · " + WindowLabel(week), week));
         }
         if (!codexExtra.SequenceEqual(extra)) codexExtra = extra.ToArray();
-        return new("Codex", tier, running, sessionCount, state, StateDetail(state), newest?.Five, newest?.Weekly, ExtraQuotas: codexExtra);
+        var detail = login.Present && newest is null ? "等待当前登录的新额度回报；旧会话额度不代表当前账号。" :
+            !login.Present && newest is not null ? "本地历史额度回报；未验证当前登录套餐。" : StateDetail(state);
+        return new("Codex", tier, running, sessionCount, state, detail, newest?.Five, newest?.Weekly,
+            ExtraQuotas: codexExtra, QuotaScope: login.Present ? login.Scope : "");
     }
 
     private static string WindowLabel(QuotaWindow window) => window.Window.TotalDays >= 1
         ? $"{window.Window.TotalDays:0.#} 天" : $"{window.Window.TotalHours:0.#} 小时";
 
-    private string ReadCodexTier()
+    private sealed record CodexLogin(string Tier, string Scope, DateTimeOffset? UpdatedAt,
+        bool Present = false, bool KnownPlan = false, bool ApiKey = false, bool ReadFailed = false);
+
+    private CodexLogin ReadCodexLogin()
     {
         var path = Path.Combine(paths.CodexRoot, "auth.json");
         using var auth = JsonSupport.ReadDocument(path);
-        if (auth is null) return string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_API_KEY")) ? "未登录" : "API Key";
+        if (auth is null && !File.Exists(path)) return string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_API_KEY"))
+            ? new("未登录", "missing", null) : new("API Key", "api-key", null, Present: true, ApiKey: true);
+        if (auth is null || auth.RootElement.ValueKind != JsonValueKind.Object)
+            return new("登录信息不可读", "unreadable", null, Present: true, ReadFailed: true);
+        DateTimeOffset? updated;
+        try { updated = new DateTimeOffset(File.GetLastWriteTimeUtc(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        { return new("登录信息不可读", "unreadable", null, Present: true, ReadFailed: true); }
         var root = auth.RootElement;
-        if (root.TryGetProperty("tokens", out var tokens) && tokens.TryGetProperty("id_token", out var token) && token.ValueKind == JsonValueKind.String)
-        {
-            var plan = ReadJwtPlan(token.GetString() ?? "");
-            if (plan.Length > 0) return Formatting.CodexPlanLabel(plan);
-        }
         var mode = root.StringOrEmpty("auth_mode");
-        if (mode == "api_key" || root.TryGetProperty("OPENAI_API_KEY", out _)) return "API Key";
-        return mode == "chatgpt" ? "ChatGPT 登录" : "已登录";
+        if (mode == "api_key" || mode != "chatgpt" && root.StringOrEmpty("OPENAI_API_KEY").Length > 0)
+            return new("API Key", "api-key", updated, Present: true, ApiKey: true);
+        if (root.TryGetProperty("tokens", out var tokens) && tokens.ValueKind == JsonValueKind.Object &&
+            tokens.StringOrEmpty("id_token") is { Length: > 0 } token)
+        {
+            var (plan, identity) = ReadJwtAccount(token);
+            var tier = plan.Length > 0 ? Formatting.CodexPlanLabel(plan) : "ChatGPT 登录";
+            return new(tier, AccountScope(tier + "\0" + (identity.Length > 0 ? identity : token)), updated,
+                Present: true, KnownPlan: plan.Length > 0);
+        }
+        return new(mode == "chatgpt" ? "ChatGPT 登录" : "已登录", AccountScope(root.GetRawText()), updated, Present: true);
     }
 
-    private static string ReadJwtPlan(string token)
+    private static string AccountScope(string identity) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+
+    private static (string Plan, string Identity) ReadJwtAccount(string token)
     {
         try
         {
             var parts = token.Split('.');
-            if (parts.Length < 2) return "";
+            if (parts.Length < 2) return ("", "");
             var payload = parts[1].Replace('-', '+').Replace('_', '/');
             payload += new string('=', (4 - payload.Length % 4) % 4);
             using var document = JsonDocument.Parse(Convert.FromBase64String(payload));
-            return document.RootElement.TryGetProperty("https://api.openai.com/auth", out var auth)
-                ? auth.StringOrEmpty("chatgpt_plan_type")
-                : "";
+            if (document.RootElement.TryGetProperty("https://api.openai.com/auth", out var auth))
+            {
+                var account = auth.StringOrEmpty("chatgpt_account_id");
+                var user = auth.StringOrEmpty("chatgpt_user_id");
+                var subject = document.RootElement.StringOrEmpty("sub");
+                return (auth.StringOrEmpty("chatgpt_plan_type"),
+                    account.Length + user.Length + subject.Length > 0 ? string.Join("\0", account, user, subject) : "");
+            }
+            return ("", "");
         }
-        catch { return ""; }
+        catch { return ("", ""); }
     }
 
     private PlatformStatus ReadGemini(int sessions)

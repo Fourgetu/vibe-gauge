@@ -131,11 +131,11 @@ public sealed class QuotaSampler(AppPaths paths)
         }
         var result = platforms.Select(p => p with
         {
-            FiveHour = Fill(p.FiveHour, p.Name + "|5h"),
-            Weekly = Fill(p.Weekly, p.Name + "|w"),
-            SecondaryFiveHour = Fill(p.SecondaryFiveHour, p.Name + "|" + p.SecondaryPoolName + "|5h"),
-            SecondaryWeekly = Fill(p.SecondaryWeekly, p.Name + "|" + p.SecondaryPoolName + "|w"),
-            Monthly = Fill(p.Monthly, p.Name + "|month")
+            FiveHour = Fill(p.FiveHour, p.QuotaHistoryKey + "|5h"),
+            Weekly = Fill(p.Weekly, p.QuotaHistoryKey + "|w"),
+            SecondaryFiveHour = Fill(p.SecondaryFiveHour, p.QuotaHistoryKey + "|" + p.SecondaryPoolName + "|5h"),
+            SecondaryWeekly = Fill(p.SecondaryWeekly, p.QuotaHistoryKey + "|" + p.SecondaryPoolName + "|w"),
+            Monthly = Fill(p.Monthly, p.QuotaHistoryKey + "|month")
         }).ToArray();
         try
         {

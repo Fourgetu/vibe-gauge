@@ -230,7 +230,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             ring.ToolTip = $"{quota.Label}\n{trust}\n上次回报 {w.UsedPercent}%\n采集 {w.CapturedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}\n重置 {w.ResetsAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}";
             column.Children.Add(ring);
             foreach (var line in new[] { trust, w.ResetsAt is null ? "未回报重置时间" : $"重置 {Formatting.Countdown(w.ResetsAt, now)}",
-                w.Age(now) is { } age ? $"采集于 {Math.Max(0, age.TotalMinutes):N0} 分钟前" : "未回报采集时间" })
+                w.Age(now) is { } age ? $"额度回报 {Math.Max(0, age.TotalMinutes):N0} 分钟前" : "未回报采集时间" })
             {
                 var text = InsightUi.Text(line);
                 text.TextAlignment = TextAlignment.Center;
