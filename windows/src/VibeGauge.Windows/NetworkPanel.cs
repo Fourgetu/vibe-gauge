@@ -153,7 +153,7 @@ public sealed class NetworkPanel : Wpf.UserControl
         }
         var gemini = connections.Where(x => x.Provider == "Gemini").ToArray();
         if (gemini.Length > 0) proxy.Children.Add(Pair("Gemini", $"{gemini.Length} 个活动连接", 85));
-        if (errors.Length > 0 || groups.Length == 0 && connections.Count == 0)
+        if (errors.Length > 0 || groups.Length == 0 && connections.Count == 0 && rows.Count > 0)
         {
             var error = errors.FirstOrDefault() ?? rows.FirstOrDefault() ?? "未取得控制器状态";
             proxy.Children.Add(Label(error, 11));

@@ -35,6 +35,7 @@ internal static class InsightUi
         panel.Children.Add(new Wpf.Border { Height = 1, Background = (Media.Brush)System.Windows.Application.Current.FindResource("BorderBrush"), Margin = new Thickness(0, 5, 0, 7) });
     }
 }
+
 public sealed partial class StatisticsPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel body = new() { Margin = new Thickness(0, 0, 5, 12) };
@@ -378,4 +379,3 @@ public sealed class SessionsPanel : Wpf.UserControl
     private static Media.Brush Brush(string name) => (Media.Brush)System.Windows.Application.Current.FindResource(name);
     private static string ProjectName(string directory) => directory.Replace('\\', '/').TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "~";
 }
-

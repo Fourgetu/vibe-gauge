@@ -598,6 +598,7 @@
   "AI 出口": "AI egress",
   "本应用探测到的出口；使用独立代理的客户端可能不同。": "Egress seen by this app; clients with their own proxy may exit elsewhere.",
   "代理内核": "Proxy core",
+  "代理组 {0} → {1}": "Proxy group {0} → {1}",
   "全部代理组与连接": "All proxy groups and connections",
   "本地网络": "Local network",
   "全部网卡": "All adapters",

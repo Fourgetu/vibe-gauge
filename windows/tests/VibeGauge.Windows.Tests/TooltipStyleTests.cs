@@ -42,6 +42,7 @@ public sealed class TooltipStyleTests
                 ProviderDetailPanelChecks.Verify();
                 FeaturePanelChecks.Verify();
                 ReauditPanelChecks.Verify();
+                NetworkPanelChecks.Verify();
                 MemoryPanelChecks.Verify();
                 TopEdgeAutoHideChecks.Verify();
             }
