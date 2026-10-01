@@ -53,7 +53,9 @@ public sealed class TooltipStyleTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.IsBackground = true;
         thread.Start();
-        Assert.True(thread.Join(TimeSpan.FromSeconds(40)), "Tooltip layout test timed out");
+        // All WPF checks share one STA/Application, including the language/theme/width
+        // matrix. Hosted runners take longer than local hardware to render this suite.
+        Assert.True(thread.Join(TimeSpan.FromMinutes(2)), "Tooltip layout test timed out");
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
 }
