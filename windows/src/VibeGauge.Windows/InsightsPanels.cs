@@ -35,7 +35,6 @@ internal static class InsightUi
         panel.Children.Add(new Wpf.Border { Height = 1, Background = (Media.Brush)System.Windows.Application.Current.FindResource("BorderBrush"), Margin = new Thickness(0, 5, 0, 7) });
     }
 }
-
 public sealed partial class StatisticsPanel : Wpf.UserControl
 {
     private readonly Wpf.StackPanel body = new() { Margin = new Thickness(0, 0, 5, 12) };
@@ -380,65 +379,3 @@ public sealed class SessionsPanel : Wpf.UserControl
     private static string ProjectName(string directory) => directory.Replace('\\', '/').TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "~";
 }
 
-public sealed class NetworkPanel : Wpf.UserControl
-{
-    private readonly Wpf.StackPanel adapters = new();
-    private readonly Wpf.StackPanel diagnostics = new();
-    private NetworkDiagnosticsReport? lastDiagnostics;
-    private string lastDiagnosticAges = "";
-    private readonly NetworkDiagnostics standalone = new(new AppPaths());
-    private readonly Wpf.TextBlock result = InsightUi.Text("出口检测仅在点击时联网，不发送账号或用量数据。");
-    public NetworkPanel()
-    {
-        var body = new Wpf.StackPanel { Margin = new Thickness(0, 0, 5, 12) };
-        body.Children.Add(InsightUi.Text("网络与代理", true));
-        var buttons = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
-        foreach (var ipv6 in new[] { false, true })
-            buttons.Children.Add(InsightUi.Button(ipv6 ? "检查 IPv6 直连" : "检测出口", async (sender, _) =>
-            {
-                var button = (Wpf.Button)sender; button.IsEnabled = false;
-                try { result.Text = await NetworkMonitor.ProbeEgressAsync(ipv6); } finally { button.IsEnabled = true; }
-            }));
-        buttons.Children.Add(InsightUi.Button("完整诊断", async (sender, _) =>
-        {
-            var button = (Wpf.Button)sender; button.IsEnabled = false;
-            try
-            {
-                RenderDiagnostics(await (DataContext is ViewModels.DashboardViewModel vm ? vm.RefreshDiagnosticsAsync() : standalone.RefreshAsync()));
-            }
-            finally { button.IsEnabled = true; }
-        }));
-        body.Children.Add(buttons); body.Children.Add(result); body.Children.Add(diagnostics); body.Children.Add(adapters);
-        foreach (var target in NetworkDiagnostics.Targets)
-            InsightUi.Row(diagnostics, target.Provider, target.Host + " · 尚未探测，点击完整诊断");
-        InsightUi.Row(diagnostics, "Gemini", "活动连接链 · 尚未读取，点击完整诊断");
-        Content = new Wpf.ScrollViewer { Content = body, VerticalScrollBarVisibility = Wpf.ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = Wpf.ScrollBarVisibility.Disabled };
-    }
-    public void Update(IReadOnlyList<NetworkAdapterInfo>? value, NetworkDiagnosticsReport? report = null)
-    {
-        if (report is not null) RenderDiagnostics(report);
-        adapters.Children.Clear();
-        foreach (var row in value ?? [])
-            InsightUi.Row(adapters, $"{row.Name} · {row.Kind}",
-                $"{row.Addresses}\n网关：{row.Gateway}\nDNS：{row.Dns}\n↓ {row.ReceiveBytesPerSecond / 1024:0.0} KB/s   ↑ {row.SendBytesPerSecond / 1024:0.0} KB/s");
-        if (adapters.Children.Count == 0) adapters.Children.Add(InsightUi.Text("未检测到活动网卡"));
-    }
-    private void RenderDiagnostics(NetworkDiagnosticsReport report)
-    {
-        var now = DateTimeOffset.Now;
-        var ages = string.Join("|", report.Exits.Select(x => x.CapturedAt is { } captured
-            ? Math.Max(0, (now - captured).TotalMinutes).ToString("0") : ""));
-        if (ReferenceEquals(lastDiagnostics, report) && lastDiagnosticAges == ages) return;
-        lastDiagnostics = report;
-        lastDiagnosticAges = ages;
-        diagnostics.Children.Clear();
-        diagnostics.Children.Add(InsightUi.Text($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}"));
-        foreach (var e in report.Exits)
-            InsightUi.Row(diagnostics, e.Provider, e.Host + "\n" + (e.Error.Length > 0 ? e.Error : e.Chain.Length > 0 ? e.Chain : $"{e.Ip} · {e.Region} · {e.Colo}") +
-                (e.LatencyMs is { } latency ? $" · {latency} ms" : "") + (e.CapturedAt is { } captured ? $" · 采集 {captured.LocalDateTime:MM-dd HH:mm:ss} · {Math.Max(0, (DateTimeOffset.Now - captured).TotalMinutes):0} 分钟前" : ""));
-        InsightUi.Row(diagnostics, "出口对比", report.Comparison);
-        InsightUi.Row(diagnostics, "Clash / Mihomo（只读）", string.Join("\n", report.Proxy));
-        InsightUi.Row(diagnostics, "Wi-Fi / Tailscale", report.Local.Count > 0 ? string.Join("\n", report.Local) : "未取得附加接口信息");
-        InsightUi.Row(diagnostics, "DNS / IPv6", report.Dns + "\n" + report.Ipv6);
-    }
-}
