@@ -25,7 +25,8 @@ internal static class ReauditPanelChecks
         var service = new NetworkDiagnostics(paths, () => Task.FromResult(report));
         using var proxy = new ProxyManager(paths);
         using var vm = new DashboardViewModel(new DashboardCoordinator(paths, proxy, service), new StartupRegistrar(), proxy, new ProxySettings());
-        vm.Dispose();
+        // Keep the model alive for the manual-refresh contract. Disposal must reject late UI updates.
+        ((DispatcherTimer)typeof(DashboardViewModel).GetField("timer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!).Stop();
         var snapshot = new DashboardSnapshot(now, new(50, 8, 16, 0, 1, 100, 500, 0), ProcessReport.Empty, [], UsageSummary.Empty, ApiUsageSummary.Empty);
         typeof(DashboardViewModel).GetMethod("Apply", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(vm, [snapshot]);
         DashboardSnapshot? notified = null;

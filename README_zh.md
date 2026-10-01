@@ -100,7 +100,9 @@ Windows 版使用原生 WPF 托盘界面，支持窗口拖动与缩放、深浅�
 
 **v1.6.5** 补齐统计页四张汇总卡片、Token 分布和独立 Agent 用量；模型明细默认显示前两个，可展开全部。新增 OpenRouter 公开价格一键导入与更新，并支持计价时去除 `-basispoints` 后缀。设置页重排，支持 OpenClash／Mihomo 软路由控制器和加密密钥，修复网络诊断、额度来源、通知及 API 账本迁移。后台继续每五秒刷新，减少重复分配；内存测试未证明真实 150 MB 能稳定降至 100 MB。详见 [v1.6.5 更新说明](docs/releases/v1.6.5.md)。
 
-下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.5/VibeGauge-Setup-v1.6.5.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.5/VibeGauge-Windows-x64-v1.6.5.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.5)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
+**v1.6.6** 简化网络卡片，补齐 DNS/IPv6 体检和今日按项目用量，保留独立 Agent 明细。可见页面的进程状态与速率约每秒轻量更新，日志仍每 5 秒扫描；官方及自定义站点额度改为 3 分钟，Codex 保持 1 分钟。升级与测量边界见 [v1.6.6 更新说明](docs/releases/v1.6.6.md)。
+
+下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.6/VibeGauge-Setup-v1.6.6.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.6/VibeGauge-Windows-x64-v1.6.6.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.6)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
 
 Windows 构建会生成免安装 ZIP 和当前用户安装包，均不需要预装 .NET 或 Python。需要安装请运行 `VibeGauge-Setup-*.exe`；`VibeGauge.exe` 是托盘主程序，不是安装器。便携使用时应保留同目录的 `VibeGauge.Proxy.exe`。
 

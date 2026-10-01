@@ -16,10 +16,14 @@ public sealed class NetworkPanel : Wpf.UserControl
     private readonly Wpf.TextBlock result = Label("出口检测仅在点击时联网，不发送账号或用量数据。", 11);
     private readonly Wpf.Expander proxyDetails, adapterDetails, diagnosticDetails;
     private readonly Wpf.StackPanel proxyRows = new(), adapterRows = new();
+    private readonly Wpf.StackPanel health = new();
     private readonly NetworkDiagnostics standalone = new(new AppPaths());
     private NetworkDiagnosticsReport? lastDiagnostics;
     private IReadOnlyList<NetworkAdapterInfo> lastAdapters = [];
     private string lastAges = "";
+    private Wpf.TextBlock? primaryRate;
+    private string primaryName = "";
+    private readonly List<(string Name, Wpf.TextBlock Label)> adapterRates = [];
 
     public NetworkPanel()
     {
@@ -54,6 +58,8 @@ public sealed class NetworkPanel : Wpf.UserControl
         var localCard = Card(body, "本地网络", "NetworkLocalCard");
         localCard.Children.Add(local);
         adapterDetails = Disclosure("全部网卡", adapterRows, "NetworkAdapterDetails"); localCard.Children.Add(adapterDetails);
+        Card(body, "网络体检", "NetworkHealthCard").Children.Add(health);
+        health.Children.Add(Label("尚未探测，点击右侧刷新", 11));
 
         var diagnosticBody = new Wpf.StackPanel();
         var actions = new Wpf.WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
@@ -75,11 +81,24 @@ public sealed class NetworkPanel : Wpf.UserControl
     public void Update(IReadOnlyList<NetworkAdapterInfo>? value, NetworkDiagnosticsReport? report = null)
     {
         var next = value ?? [];
-        var changed = !lastAdapters.SequenceEqual(next);
+        var changed = !lastAdapters.Select(Topology).SequenceEqual(next.Select(Topology));
         lastAdapters = next;
         if (report is not null) RenderDiagnostics(report);
         if (changed) RenderLocal();
+        else UpdateRates();
     }
+
+    private static (string, string, string, string, string) Topology(NetworkAdapterInfo value) =>
+        (value.Name, value.Kind, value.Addresses, value.Gateway, value.Dns);
+
+    private void UpdateRates()
+    {
+        if (primaryRate is not null && lastAdapters.FirstOrDefault(x => x.Name == primaryName) is { } primary)
+            primaryRate.Text = RateText(primary);
+        foreach (var (name, label) in adapterRates)
+            if (lastAdapters.FirstOrDefault(x => x.Name == name) is { } adapter) label.Text = RateText(adapter);
+    }
+    private static string RateText(NetworkAdapterInfo value) => $"↓ {Rate(value.ReceiveBytesPerSecond)}   ↑ {Rate(value.SendBytesPerSecond)}";
 
     private void RenderDiagnostics(NetworkDiagnosticsReport report)
     {
@@ -90,12 +109,23 @@ public sealed class NetworkPanel : Wpf.UserControl
         summary.Text = report.Comparison.Replace(" · Gemini 使用活动连接链判断", "");
         summary.ToolTip = report.Comparison;
         RenderExits(report); RenderProxy(report); RenderLocal();
+        health.Children.Clear();
+        HealthRow("DNS", report.DnsVerdict, report.DnsSummary);
+        HealthRow("IPv6", report.Ipv6Verdict, report.Ipv6);
         details.Children.Clear();
         details.Children.Add(Label($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}", 11));
         foreach (var exit in report.Exits) InsightUi.Row(details, exit.Provider, ExitDetail(exit));
         InsightUi.Row(details, "DNS / IPv6", report.Dns + "\n" + report.Ipv6);
         if (report.Local.Count > 0) InsightUi.Row(details, "Wi-Fi / Tailscale", string.Join("\n", report.Local));
         if (report.Changes.Count > 0) InsightUi.Row(details, "出口变化", string.Join("\n", report.Changes));
+    }
+
+    private void HealthRow(string title, string verdict, string message)
+    {
+        var status = verdict switch { "warning" => "需关注", "managed" => "代理接管特征", "unavailable" => "未发现直连", _ => "无法判定" };
+        var text = Label(title + " · " + status, 12, bold: true);
+        text.SetResourceReference(Wpf.TextBlock.ForegroundProperty, verdict == "warning" ? "WarningBrush" : "TextSecondaryBrush");
+        health.Children.Add(text); health.Children.Add(Label(message, 10.5));
     }
 
     private void RenderExits(NetworkDiagnosticsReport? report)
@@ -164,6 +194,7 @@ public sealed class NetworkPanel : Wpf.UserControl
     private void RenderLocal()
     {
         local.Children.Clear(); adapterRows.Children.Clear();
+        adapterRates.Clear(); primaryRate = null;
         adapterDetails.Visibility = lastAdapters.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // Prefer a physical adapter with a gateway; do not sum tunnel traffic twice.
         var primary = lastAdapters.OrderByDescending(x => x.Gateway.Length > 0)
@@ -177,10 +208,15 @@ public sealed class NetworkPanel : Wpf.UserControl
         local.Children.Add(Pair("DNS", primary.Dns, 70));
         var ssid = lastDiagnostics?.Local.FirstOrDefault(x => x.StartsWith("SSID", StringComparison.OrdinalIgnoreCase));
         if (ssid is not null) local.Children.Add(Pair("Wi-Fi", ssid[(ssid.IndexOf(':') + 1)..].Trim(), 70));
-        local.Children.Add(Pair("实时速率", $"↓ {Rate(primary.ReceiveBytesPerSecond)}   ↑ {Rate(primary.SendBytesPerSecond)}", 70));
+        var rateRow = Pair("实时速率", RateText(primary), 70);
+        primaryName = primary.Name; primaryRate = (Wpf.TextBlock)rateRow.Children[1];
+        primaryRate.ToolTip = null; local.Children.Add(rateRow);
         foreach (var adapter in lastAdapters)
+        {
             InsightUi.Row(adapterRows, adapter.Name + " · " + adapter.Kind,
-                $"{adapter.Addresses}\n网关：{adapter.Gateway}\nDNS：{adapter.Dns}\n↓ {Rate(adapter.ReceiveBytesPerSecond)}   ↑ {Rate(adapter.SendBytesPerSecond)}");
+                $"{adapter.Addresses}\n网关：{adapter.Gateway}\nDNS：{adapter.Dns}");
+            var rate = Label(RateText(adapter), 11); adapterRows.Children.Add(rate); adapterRates.Add((adapter.Name, rate));
+        }
     }
 
     private static string GroupName(string row) => row[4..].Split(" → ", 2)[0];

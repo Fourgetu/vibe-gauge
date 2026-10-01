@@ -64,7 +64,7 @@ public sealed class UsageKeysPanel : Wpf.UserControl
                     UsageKeyVault.SaveCustom(endpoint.Text, secret.Password.Trim(), label.Text);
                 else UsageKeyVault.Save((string)host.SelectedItem, secret.Password.Trim());
                 secret.Clear();
-                Feedback("已保存到 Windows 凭据管理器；在「订阅」查看额度，每 5 分钟更新。");
+                Feedback("已保存到 Windows 凭据管理器；在「订阅」查看额度，每 3 分钟更新。");
                 Populate();
                 if (DataContext is DashboardViewModel vm) { vm.InvalidateOfficial(); await vm.RefreshAsync(); }
             }

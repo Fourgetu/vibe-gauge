@@ -18,6 +18,9 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private readonly HashSet<string> hiddenClients;
     private bool internationalTokens;
     private readonly DispatcherTimer timer;
+    private readonly DispatcherTimer fastTimer;
+    private readonly VisibleRefreshLoop<LightweightSnapshot> fastRefresh;
+    private bool windowVisible, disposed;
     private bool refreshing;
     private string statusText = "正在读取本地数据...";
     private string headerMemoryText = "内存 --";
@@ -58,6 +61,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     {
         if (!Platforms.Any(x => x.Name == name && x.CanOpenDetail)) return false;
         selectedProviderName = name;
+        UpdateFastScope();
         Raise(nameof(SelectedProviderName)); Raise(nameof(IsProviderDetailOpen)); Raise(nameof(IsOverview));
         return true;
     }
@@ -66,6 +70,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     {
         if (selectedProviderName is null) return;
         selectedProviderName = null;
+        UpdateFastScope();
         Raise(nameof(SelectedProviderName)); Raise(nameof(IsProviderDetailOpen)); Raise(nameof(IsOverview));
     }
 
@@ -89,11 +94,15 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += async (_, _) => await RefreshAsync();
         timer.Start();
+        fastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        fastRefresh = new(() => coordinator.ScanLightweightAsync(IsSubscriptionSelected, IsNetworkSelected), ApplyLightweight);
+        fastTimer.Tick += async (_, _) => await fastRefresh.TickAsync();
     }
 
     public async Task<NetworkDiagnosticsReport> RefreshDiagnosticsAsync()
     {
         var report = await coordinator.RefreshDiagnosticsAsync();
+        if (disposed) return report;
         if (lastSnapshot is { } snapshot)
         {
             snapshot = snapshot with { CapturedAt = DateTimeOffset.Now, Diagnostics = report };
@@ -105,6 +114,17 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<DashboardSnapshot>? SnapshotChanged;
+    public event EventHandler<IReadOnlyList<NetworkAdapterInfo>>? LightweightChanged;
+
+    internal void SetWindowVisible(bool value) { windowVisible = value; UpdateFastScope(); }
+    private void UpdateFastScope()
+    {
+        fastRefresh.Invalidate();
+        var enabled = !disposed && windowVisible && IsOverview && lastSnapshot is not null &&
+            (IsSubscriptionSelected || IsNetworkSelected);
+        fastRefresh.SetEnabled(enabled);
+        if (enabled) fastTimer.Start(); else fastTimer.Stop();
+    }
 
     public ObservableCollection<PlatformRow> Platforms { get; } = [];
     public ObservableCollection<ClientDisplayOption> ClientOptions { get; } = [];
@@ -242,6 +262,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         CloseProviderDetail();
         if (selectedTab == index) return;
         selectedTab = index;
+        UpdateFastScope();
         Raise(nameof(IsSubscriptionSelected));
         Raise(nameof(IsApiSelected));
         Raise(nameof(IsSystemSelected));
@@ -274,17 +295,55 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task RefreshAsync()
     {
-        if (IsRefreshing) return;
+        if (IsRefreshing || disposed) return;
         IsRefreshing = true;
+        UpdateFastScope();
         try
         {
             var snapshot = await coordinator.ScanAsync();
+            if (disposed) return;
+            fastRefresh.Invalidate();
             Apply(snapshot);
             StatusText = $"更新于 {snapshot.CapturedAt:HH:mm:ss}";
             SnapshotChanged?.Invoke(this, snapshot);
         }
         catch (Exception error) { StatusText = "刷新失败：" + error.Message; }
-        finally { IsRefreshing = false; }
+        finally { IsRefreshing = false; UpdateFastScope(); }
+    }
+
+    private void ApplyLightweight(LightweightSnapshot value)
+    {
+        if (lastSnapshot is not { } current || disposed) return;
+        if (value.Network is { } adapters)
+        {
+            current = current with { Network = adapters };
+            LightweightChanged?.Invoke(this, adapters);
+        }
+        if (value.Activity is { } activity)
+        {
+            var platforms = current.Platforms.Select(x => WithActivity(x, activity)).ToArray();
+            for (var index = 0; index < Platforms.Count; index++)
+            {
+                var oldRow = Platforms[index];
+                var platform = platforms.FirstOrDefault(x => x.Name == oldRow.Name);
+                var previous = current.Platforms.FirstOrDefault(x => x.Name == oldRow.Name);
+                if (platform is null || previous is null || platform.IsRunning == previous.IsRunning && platform.Sessions == previous.Sessions) continue;
+                var next = PlatformRow.From(platform, current.Statistics?.ProfileFor(platform.Name), SelectedTokenUnit);
+                // Keep quota projections and all consumption values on the regular cadence.
+                Platforms[index] = oldRow with { RuntimeText = next.RuntimeText, SessionText = next.SessionText, Tone = next.Tone };
+            }
+            ActiveProviderText = $"{platforms.Count(x => x.IsRunning && IsClientVisible(x.Name))} 个活动";
+            current = current with { Platforms = platforms };
+        }
+        lastSnapshot = current;
+    }
+
+    internal static PlatformStatus WithActivity(PlatformStatus value, ProcessReport activity)
+    {
+        int? sessions = value.Name switch { "Claude" => activity.ClaudeSessions, "Codex" => activity.CodexSessions,
+            "Gemini" => activity.GeminiSessions, "PI-Desktop" => activity.PiDesktopProcesses,
+            "ZCode" => activity.ZCodeProcesses, "WorkBuddy" => activity.WorkBuddyProcesses, "DSH Desktop" => activity.DshProcesses, _ => null };
+        return sessions is { } count ? value with { IsRunning = count > 0, Sessions = count } : value;
     }
 
     public async Task<CleanupResult> CleanAsync()
@@ -394,7 +453,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private void Raise(string? name) => PropertyChanged?.Invoke(this, new(name));
-    public void Dispose() { timer.Stop(); coordinator.Dispose(); }
+    public void Dispose() { disposed = true; timer.Stop(); fastTimer.Stop(); fastRefresh.Dispose(); coordinator.Dispose(); }
 }
 
 public sealed record QuotaRow(string Label, double Percent, string PercentText, string ResetText, string Tone,

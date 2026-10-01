@@ -24,7 +24,7 @@ public sealed class OfficialSources(AppPaths paths)
             pending = null;
             refreshed = DateTimeOffset.Now;
         }
-        if (pending is null && (force || DateTimeOffset.Now - refreshed >= TimeSpan.FromMinutes(5)))
+        if (pending is null && (force || DateTimeOffset.Now - refreshed >= TimeSpan.FromMinutes(3)))
         { force = false; pending = Task.Run(Refresh); }
         return cached;
     }

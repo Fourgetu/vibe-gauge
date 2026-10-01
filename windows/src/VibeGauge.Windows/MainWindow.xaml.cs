@@ -44,6 +44,10 @@ public partial class MainWindow : Window
             latestSnapshot = snapshot;
             UpdateSelectedPanel();
         };
+        viewModel.LightweightChanged += (_, adapters) =>
+        {
+            if (IsVisible && viewModel.IsNetworkSelected) NetworkView.Update(adapters, null);
+        };
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(viewModel.SelectedProviderName))
@@ -56,7 +60,7 @@ public partial class MainWindow : Window
                 e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
                 UpdateSelectedPanel();
         };
-        IsVisibleChanged += (_, _) => { if (IsVisible) UpdateSelectedPanel(); };
+        IsVisibleChanged += (_, _) => { viewModel.SetWindowVisible(IsVisible); if (IsVisible) UpdateSelectedPanel(); };
         if (autoHide) Deactivated += (_, _) =>
         {
             if (!pinned && !moving && !edgeHide.IsDocked && !IsMouseOver) Hide();
@@ -76,7 +80,7 @@ public partial class MainWindow : Window
             return;
         }
         if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics, viewModel.SelectedTokenUnit);
-        else if (viewModel.IsSubscriptionSelected) PlansView.Update(viewModel.VisibleSessions(snapshot.Sessions), viewModel.SelectedTokenUnit);
+        else if (viewModel.IsSubscriptionSelected) PlansView.Update(viewModel.VisibleSessions(snapshot.Sessions), viewModel.SelectedTokenUnit, snapshot.Usage.Projects);
         else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network, snapshot.Diagnostics);
     }
 

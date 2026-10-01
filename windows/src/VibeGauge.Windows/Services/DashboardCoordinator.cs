@@ -65,6 +65,8 @@ public sealed class DashboardCoordinator : IDisposable
     }
 
     public Task<NetworkDiagnosticsReport> RefreshDiagnosticsAsync() => diagnostics.RefreshAsync();
+    internal Task<LightweightSnapshot> ScanLightweightAsync(bool activity, bool rates) => Task.Run(() =>
+        new LightweightSnapshot(activity ? system.ScanActivity() : null, rates ? network.Scan() : null));
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
     public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateCodex(); }

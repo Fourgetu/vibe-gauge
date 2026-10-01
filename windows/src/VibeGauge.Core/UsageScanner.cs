@@ -150,7 +150,8 @@ public sealed partial class UsageScanner
         var rewritten = tailChanged || state.Source != source || state.Offset > stream.Length || stream.Length < state.Size ||
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
                         stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks ||
-                        source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 2;
+                        source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 2 ||
+                        source is "Claude" or "Codex" && state.ProjectMetadataVersion < 1;
         if (rewritten)
         {
             Hydrate(state);
@@ -181,6 +182,7 @@ public sealed partial class UsageScanner
             JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
         state.SessionIdentityRead = true;
         if (source == "API") state.ApiMetadataVersion = 2;
+        if (source is "Claude" or "Codex") state.ProjectMetadataVersion = 1;
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -216,7 +218,8 @@ public sealed partial class UsageScanner
 
     private static bool IsRelevantLine(ReadOnlyMemory<byte> line, string source) => source switch
     {
-        "Claude" or PiDesktopUsage.SourceName or WorkBuddyUsage.SourceName => line.Span.IndexOf("\"usage\""u8) >= 0,
+        "Claude" => line.Span.IndexOf("\"usage\""u8) >= 0 || line.Span.IndexOf("\"cwd\""u8) >= 0,
+        PiDesktopUsage.SourceName or WorkBuddyUsage.SourceName => line.Span.IndexOf("\"usage\""u8) >= 0,
         "Codex" => line.Span.IndexOf("\"token_count\""u8) >= 0 ||
             line.Span.IndexOf("\"turn_context\""u8) >= 0 || line.Span.IndexOf("\"session_meta\""u8) >= 0,
         _ => true
@@ -224,7 +227,7 @@ public sealed partial class UsageScanner
 
     private static void Consume(string line, FileState state)
     {
-        if (state.Source == "Claude" && !line.Contains("\"usage\"", StringComparison.Ordinal)) return;
+        if (state.Source == "Claude" && !line.Contains("\"usage\"", StringComparison.Ordinal) && !line.Contains("\"cwd\"", StringComparison.Ordinal)) return;
         if (state.Source == PiDesktopUsage.SourceName && !line.Contains("\"usage\"", StringComparison.Ordinal)) return;
         if (state.Source == "Codex" &&
             !line.Contains("\"token_count\"", StringComparison.Ordinal) &&
@@ -250,6 +253,7 @@ public sealed partial class UsageScanner
 
     private static void ConsumeClaude(JsonElement root, FileState state)
     {
+        ReadCwd(root, state);
         if (root.StringOrEmpty("type") != "assistant" ||
             !root.TryGetProperty("message", out var message) ||
             !message.TryGetProperty("usage", out var usage)) return;
@@ -272,7 +276,7 @@ public sealed partial class UsageScanner
             : 0;
         state.Records[id] = new(
             id, "Claude", model.Length == 0 ? "?" : model, timestamp.Value,
-            input + read + write, read, write, output, think);
+            input + read + write, read, write, output, think, Cwd: state.Cwd);
     }
 
     private static void ConsumeCodex(JsonElement root, FileState state)
@@ -281,6 +285,7 @@ public sealed partial class UsageScanner
         var type = root.StringOrEmpty("type");
         if (type is "turn_context" or "session_meta")
         {
+            ReadCwd(payload, state);
             if (type == "session_meta" && payload.StringOrEmpty("id") is { Length: > 0 } sessionId)
                 state.SessionId = sessionId;
             var contextModel = payload.StringOrEmpty("model");
@@ -311,11 +316,17 @@ public sealed partial class UsageScanner
         StoreSequencedRecord(state, new(
             id, "Codex", model.Length == 0 ? "Codex" : model, timestamp.Value,
             usage["input_tokens"], usage["cached_input_tokens"], usage["cache_write_input_tokens"],
-            usage["output_tokens"], usage["reasoning_output_tokens"]));
+            usage["output_tokens"], usage["reasoning_output_tokens"], Cwd: state.Cwd));
     }
 
     private static bool? ReadBoolean(JsonElement root, string key) => root.TryGetProperty(key, out var value) &&
         value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
+
+    private static void ReadCwd(JsonElement root, FileState state)
+    {
+        if (root.TryGetProperty("cwd", out var cwd) && cwd.ValueKind == JsonValueKind.String &&
+            !cwd.ValueEquals("") && !cwd.ValueEquals(state.Cwd)) state.Cwd = cwd.GetString()!;
+    }
 
     private static void ConsumeApi(JsonElement root, FileState state)
     {
@@ -391,7 +402,7 @@ public sealed partial class UsageScanner
             cliRecords.Sum(x => x.ThinkingTokens),
             sourceRows,
             cliRecords.OrderByDescending(x => x.Timestamp).Take(3).Select(x => QualifyRecentId(x, codexFiles)).ToArray(),
-            error);
+            error, BuildProjects(todayClaude.Concat(todayCodex)));
 
         api = api.Where(x => x.Timestamp <= now).ToArray();
         var todayApi = api.Where(x => x.Timestamp >= start).ToArray();
@@ -474,7 +485,7 @@ public sealed partial class UsageScanner
                 key = UsageFingerprint(UsageIdentity.From(record));
             if (state.ReplayRemaining.TryGetValue(key, out var count))
             {
-                if (state.Source == "API")
+                if (state.Source is "API" or "Codex")
                 {
                     state.ReplayMetadata ??= state.Records.Values.GroupBy(x => ReplayFingerprint(x, state.Source))
                         .ToDictionary(g => g.Key, g => new Queue<string>(g.Select(x => x.Id).Skip(Math.Max(0, g.Count() - state.ReplayRemaining.GetValueOrDefault(g.Key)))));
@@ -484,7 +495,8 @@ public sealed partial class UsageScanner
                         state.Records[existingId] = record with { Id = existingId, UsageKnown = record.UsageKnown ?? existing.UsageKnown,
                             ApiHost = record.ApiHost.Length > 0 ? record.ApiHost : existing.ApiHost,
                             ReachedUpstream = record.ReachedUpstream ?? existing.ReachedUpstream, Completed = record.Completed ?? existing.Completed,
-                            RateLimits = record.RateLimits is { Count: > 0 } ? record.RateLimits : existing.RateLimits };
+                            RateLimits = record.RateLimits is { Count: > 0 } ? record.RateLimits : existing.RateLimits,
+                            Cwd = record.Cwd.Length > 0 ? record.Cwd : existing.Cwd };
                     }
                 }
                 if (count <= 1) state.ReplayRemaining.Remove(key);
@@ -534,7 +546,7 @@ public sealed partial class UsageScanner
             foreach (var record in files[0].Value.Records.Values) yield return record;
             yield break;
         }
-        var seen = new Dictionary<UsageIdentity, int>();
+        var seen = new Dictionary<UsageIdentity, List<InteractionRecord>>();
         foreach (var file in files)
         {
             var occurrences = new Dictionary<UsageIdentity, int>();
@@ -543,11 +555,14 @@ public sealed partial class UsageScanner
                 var identity = UsageIdentity.From(record);
                 var occurrence = occurrences.GetValueOrDefault(identity) + 1;
                 occurrences[identity] = occurrence;
-                if (occurrence <= seen.GetValueOrDefault(identity)) continue;
-                seen[identity] = occurrence;
-                yield return record;
+                if (!seen.TryGetValue(identity, out var copies)) seen[identity] = copies = [];
+                if (occurrence > copies.Count) copies.Add(record);
+                else if (copies[occurrence - 1].Cwd.Length == 0 && record.Cwd.Length > 0)
+                    copies[occurrence - 1] = record;
             }
         }
+        foreach (var copies in seen.Values)
+            foreach (var record in copies) yield return record;
     }
 
     private static string CodexSessionKey(KeyValuePair<string, FileState> file)
@@ -578,7 +593,8 @@ public sealed partial class UsageScanner
     {
         var latest = new Dictionary<string, InteractionRecord>(StringComparer.Ordinal);
         foreach (var record in records)
-            if (!latest.TryGetValue(record.Id, out var old) || old.Timestamp < record.Timestamp)
+            if (!latest.TryGetValue(record.Id, out var old) || old.Timestamp < record.Timestamp ||
+                old.Timestamp == record.Timestamp && old.Cwd.Length == 0 && record.Cwd.Length > 0)
                 latest[record.Id] = record;
         return latest.Values;
     }
@@ -728,10 +744,10 @@ public sealed partial class UsageScanner
         }
         foreach (var file in cache.Files.Values)
         {
-            file.Source = Share(file.Source); file.Model = Share(file.Model);
+            file.Source = Share(file.Source); file.Model = Share(file.Model); file.Cwd = Share(file.Cwd);
             foreach (var (key, row) in file.Records.ToArray())
                 file.Records[key] = row with { Id = key == row.Id ? key : row.Id,
-                    Source = Share(row.Source), Model = Share(row.Model), ApiHost = Share(row.ApiHost) };
+                    Source = Share(row.Source), Model = Share(row.Model), ApiHost = Share(row.ApiHost), Cwd = Share(row.Cwd) };
         }
     }
 
@@ -755,6 +771,8 @@ public sealed partial class UsageScanner
         public string SessionId { get; set; } = "";
         public bool SessionIdentityRead { get; set; }
         public int ApiMetadataVersion { get; set; }
+        public int ProjectMetadataVersion { get; set; }
+        public string Cwd { get; set; } = "";
         [System.Text.Json.Serialization.JsonIgnore] public Dictionary<string, Queue<string>>? ReplayMetadata { get; set; }
         public long Size { get; set; }
         public long LastWriteUtcTicks { get; set; }

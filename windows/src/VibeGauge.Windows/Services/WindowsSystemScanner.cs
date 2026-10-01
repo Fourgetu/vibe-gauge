@@ -9,7 +9,7 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-public sealed class WindowsSystemScanner
+public sealed partial class WindowsSystemScanner
 {
     private readonly object sync = new();
     private DateTimeOffset npxMeasuredAt;
@@ -51,6 +51,8 @@ public sealed class WindowsSystemScanner
             }
             catch { listeners = null; servicePids = null; }
             var report = BuildProcessReport(processes, listeners, servicePids, protectedTokens) with { LocalRuntimes = LocalRuntimeDiscovery.From(processes.Values) };
+            // Reuse the already classified roots; do not retain every process command line.
+            Volatile.Write(ref activityMetadata, (report.ProviderProcesses ?? []).Select(x => processes[x.ProcessId]).ToDictionary(x => x.ProcessId));
             return (ReadMetrics(), report);
         }
     }
@@ -286,10 +288,15 @@ public sealed class WindowsSystemScanner
     }
 
     private static ProcessReport BuildProcessReport(
+        IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlySet<int>? listeners,
+        IReadOnlySet<int>? servicePids, IReadOnlyList<string> protectedTokens) =>
+        BuildReport(processes, listeners, servicePids, protectedTokens, includeMcp: true);
+
+    private static ProcessReport BuildReport(
         IReadOnlyDictionary<int, ProcessSnapshot> processes,
         IReadOnlySet<int>? listeners,
         IReadOnlySet<int>? servicePids,
-        IReadOnlyList<string> protectedTokens)
+        IReadOnlyList<string> protectedTokens, bool includeMcp)
     {
         using var currentProcess = Process.GetCurrentProcess();
         var currentSession = currentProcess.SessionId;
@@ -315,6 +322,7 @@ public sealed class WindowsSystemScanner
         var protectedReasons = new List<string>();
         foreach (var process in processes.Values)
         {
+            if (!includeMcp) break;
             if (!IsMcpRunner(process, out var serviceName)) continue;
             var parentAlive = process.ParentProcessId > 0 && processes.ContainsKey(process.ParentProcessId);
             if (parentAlive)

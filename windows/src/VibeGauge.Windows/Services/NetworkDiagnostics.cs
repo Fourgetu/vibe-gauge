@@ -86,12 +86,27 @@ public sealed class NetworkDiagnostics
         }).ToArray();
         var proxyTask = new ClashControllerClient(paths).ReadAsync();
         var local = LocalAsync();
-        var ipv6 = NetworkMonitor.ProbeEgressAsync(true);
+        var ipv6 = NetworkMonitor.CheckIpv6Async();
         var dns = DnsAsync(Targets.Select(x => x.Host));
         var exits = (await Task.WhenAll(probes)).ToList();
         var proxy = await proxyTask;
         exits.Add(ClashControllerClient.GeminiExit(proxy));
-        return new(DateTimeOffset.Now, exits, proxy.Rows, await local, [], await dns, await ipv6, proxy.Connections);
+        var v6 = await ipv6;
+        var dnsHealth = ReadDnsHealth();
+        return new(DateTimeOffset.Now, exits, proxy.Rows, await local, [], dnsHealth.Message + "\n" + await dns, v6.Message, proxy.Connections)
+            { DnsVerdict = dnsHealth.Verdict, DnsSummary = dnsHealth.Message, Ipv6Verdict = v6.Verdict };
+    }
+
+    private static NetworkHealthResult ReadDnsHealth()
+    {
+        try
+        {
+            return NetworkHealth.Dns(System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Where(x => x.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up &&
+                    x.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+                .SelectMany(x => x.GetIPProperties().DnsAddresses).Select(x => x.ToString()));
+        }
+        catch (System.Net.NetworkInformation.NetworkInformationException) { return new("unknown", "DNS 配置读取失败，无法判定。"); }
     }
     internal static IReadOnlyList<string> ParseClash(JsonElement root)
     {

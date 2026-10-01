@@ -39,6 +39,9 @@ public sealed record ProxyConnection(string Provider, string Host, string Chain)
 public sealed record NetworkDiagnosticsReport(DateTimeOffset CapturedAt, IReadOnlyList<EgressInfo> Exits,
     IReadOnlyList<string> Proxy, IReadOnlyList<string> Local, IReadOnlyList<string> Changes, string Dns, string Ipv6, IReadOnlyList<ProxyConnection>? Connections = null)
 {
+    public string DnsVerdict { get; init; } = "unknown";
+    public string DnsSummary { get; init; } = "尚未探测";
+    public string Ipv6Verdict { get; init; } = "unknown";
     public string Comparison
     {
         get

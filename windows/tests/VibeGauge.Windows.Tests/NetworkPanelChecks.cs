@@ -15,14 +15,17 @@ internal static class NetworkPanelChecks
     internal static void Verify()
     {
         var at = DateTimeOffset.Now.AddMinutes(-2);
+        var dns = NetworkHealth.Dns(["192.168.1.1"]);
+        var ipv6 = NetworkHealth.Ipv6(false, true, true);
         var report = new NetworkDiagnosticsReport(at,
             NetworkDiagnostics.Targets.Select(x => new EgressInfo(x.Provider, x.Host, "203.0.113.24", "US", "SJC", "", 182, at))
                 .Append(new("Gemini", "gemini.google.com", "", "", "", "", CapturedAt: at,
                     Chain: "gemini.google.com · AI → US-West-01\ngenerativelanguage.googleapis.com · Google → US-West-02")).ToArray(),
             ["代理组 AI → US-West-01", "代理组 Proxy → JP-Tokyo-02", "代理组 Google → US-West-02", "代理组 Archive → EU-Central-03",
                 "gemini.google.com · AI → US-West-01", "generativelanguage.googleapis.com · Google → US-West-02"],
-            ["SSID : Home-WiFi", "Tailscale：Running"], [], "api.openai.com：198.18.0.2", "未检测到可直连 IPv6",
-            [new("Gemini", "gemini.google.com", "AI → US-West-01"), new("Gemini", "generativelanguage.googleapis.com", "Google → US-West-02")]);
+            ["SSID : Home-WiFi", "Tailscale：Running"], [], "api.openai.com：198.18.0.2", ipv6.Message,
+            [new("Gemini", "gemini.google.com", "AI → US-West-01"), new("Gemini", "generativelanguage.googleapis.com", "Google → US-West-02")])
+            { DnsSummary = dns.Message, DnsVerdict = dns.Verdict, Ipv6Verdict = ipv6.Verdict };
         NetworkAdapterInfo[] adapters = [new("Wi-Fi", "Wireless80211", "192.168.1.23 · fe80::1234", "192.168.1.1", "198.18.0.2", 2621440, 190464),
             new("Tailscale", "Tunnel", "100.64.0.8", "", "100.100.100.100", 1000, 2000)];
         var panel = new NetworkPanel();
@@ -39,6 +42,11 @@ internal static class NetworkPanelChecks
             Assert.Contains("203.0.113.24", VisibleText(panel));
             Assert.Contains("2 个活动连接", VisibleText(panel));
             Assert.Contains("192.168.1.1", VisibleText(panel));
+            var localCard = Elements<Border>(panel).Single(x => x.Name == "NetworkLocalCard");
+            var beforeRateUpdate = Elements<TextBlock>(localCard).ToArray();
+            panel.Update([adapters[0] with { ReceiveBytesPerSecond = 5242880 }, adapters[1]], report); Layout(window);
+            Assert.Equal(beforeRateUpdate, Elements<TextBlock>(localCard).ToArray());
+            Assert.Contains("5.0 MB/s", VisibleText(localCard));
             Assert.DoesNotContain("EU-Central-03", VisibleText(panel));
             Assert.DoesNotContain("api.openai.com", VisibleText(panel));
             var scroll = (ScrollViewer)panel.Content;
@@ -49,9 +57,13 @@ internal static class NetworkPanelChecks
                 window.Width = width; UiLocalization.SetLanguage(language);
                 ((ThemePalette)Application.Current.FindResource("ThemePalette")).IsLight = light; Layout(window);
                 Assert.True(scroll.ExtentWidth <= scroll.ViewportWidth + 1);
-                Assert.InRange(scroll.ExtentHeight, 400, 900);
+                // Four cards now include the DNS/IPv6 summary; overflow remains vertical.
+                Assert.InRange(scroll.ExtentHeight, 400, 1100);
                 if (language == "en") Assert.DoesNotMatch(@"[\u4e00-\u9fff]", VisibleText(panel));
                 Capture(window, $"network-{language}-{(light ? "light" : "dark")}-{width}.png");
+                scroll.ScrollToEnd(); Layout(window);
+                Capture(window, $"network-health-{language}-{(light ? "light" : "dark")}-{width}.png");
+                scroll.ScrollToTop(); Layout(window);
             }
             UiLocalization.SetLanguage("zh"); window.Width = 420;
             foreach (var disclosure in disclosures) disclosure.IsExpanded = true;
@@ -61,13 +73,17 @@ internal static class NetworkPanelChecks
             Assert.Contains("generativelanguage.googleapis.com", VisibleText(panel));
             Assert.Contains("100.64.0.8", VisibleText(panel));
             Assert.Contains("采集", VisibleText(panel));
-            Assert.Contains("未检测到可直连 IPv6", VisibleText(panel));
+            Assert.Contains("未发现 IPv6 直连", VisibleText(panel));
             var buttons = Elements<Button>(panel).ToArray();
             Assert.Contains(buttons, x => x.Name == "NetworkRefresh");
             Assert.Contains(buttons, x => Equals(x.Content, "检测出口"));
             Assert.Contains(buttons, x => Equals(x.Content, "检查 IPv6 直连"));
             UiLocalization.SetLanguage("en"); Layout(window);
             Assert.DoesNotMatch(@"[\u4e00-\u9fff]", VisibleText(panel));
+            foreach (var check in new[] { NetworkHealth.Dns(["223.5.5.5"]), NetworkHealth.Dns(["198.18.0.2"]),
+                NetworkHealth.Ipv6(true, false, false, "2001:db8::1"), NetworkHealth.Ipv6(true, false, false),
+                NetworkHealth.Ipv6(false, false, true), NetworkHealth.Ipv6(false, true, false) })
+                Assert.DoesNotMatch(@"[\u4e00-\u9fff]", UiLocalization.Text(check.Message));
         }
         finally { UiLocalization.SetLanguage("zh"); window.Close(); }
     }
@@ -88,7 +104,7 @@ internal static class NetworkPanelChecks
     }
     private static void Capture(Window window, string name)
     {
-        var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/network-20261001/screenshots"));
+        var output = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/parity-20261001/screenshots"));
         Directory.CreateDirectory(output);
         var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));

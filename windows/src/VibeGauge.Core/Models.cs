@@ -91,7 +91,8 @@ public sealed record InteractionRecord(
     bool? ReachedUpstream = null,
     IReadOnlyDictionary<string, string>? RateLimits = null,
     bool? Completed = null,
-    string ApiHost = "")
+    string ApiHost = "",
+    string Cwd = "")
 {
     [JsonIgnore] public string ApiAccount => Source["API · ".Length..] + (ApiHost.Length > 0 ? " · " + ApiHost : "");
     [JsonIgnore] public bool UnknownUsage => Status is >= 200 and < 400 && (Completed == false || UsageKnown == false || UsageKnown is null && TotalTokens == 0);
@@ -124,11 +125,25 @@ public sealed record UsageSummary(
     long ThinkingTokens,
     IReadOnlyList<UsageSourceSummary> Sources,
     IReadOnlyList<InteractionRecord> Recent,
-    string Error = "")
+    string Error = "",
+    IReadOnlyList<ProjectUsage>? Projects = null)
 {
     public static UsageSummary Empty { get; } = new(0, 0, 0, 0, 0, 0, [], [], "");
     [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
     public double? CacheHitRate => ContextTokens <= 0 ? null : CacheReadTokens * 100.0 / ContextTokens;
+}
+
+public sealed record ProjectUsage(
+    string Path,
+    int Turns,
+    long ContextTokens,
+    long OutputTokens,
+    long ThinkingTokens,
+    IReadOnlyList<string> Contributors)
+{
+    [JsonIgnore] public long TotalTokens => ContextTokens + OutputTokens;
+    [JsonIgnore] public string DisplayName => string.IsNullOrWhiteSpace(Path) ? "未知项目" :
+        System.IO.Path.GetFileName(Path.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)) is { Length: > 0 } name ? name : Path;
 }
 
 public sealed record ApiProviderSummary(

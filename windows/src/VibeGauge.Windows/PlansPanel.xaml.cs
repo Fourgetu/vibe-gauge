@@ -14,7 +14,11 @@ public partial class PlansPanel : Wpf.UserControl
     {
         if (sender is FrameworkElement { DataContext: PlatformRow { CanOpenDetail: true } row }) ProviderSelected?.Invoke(row.Name);
     }
-    public void Update(SessionSummary? sessions, TokenUnit unit = TokenUnit.Chinese) => SessionsView.Update(sessions, unit);
+    public void Update(SessionSummary? sessions, TokenUnit unit = TokenUnit.Chinese, IReadOnlyList<ProjectUsage>? projects = null)
+    {
+        SessionsView.Update(sessions, unit);
+        ProjectsView.Update(projects, unit);
+    }
     internal void ScrollToUsageForCapture()
     {
         UpdateLayout();
