@@ -648,5 +648,7 @@
   "日志未提供项目路径": "Project path missing from logs",
   "显示全部项目": "Show all projects",
   "收起项目": "Collapse projects",
-  "{0} 次交互": "{0} interactions"
+  "{0} 次交互": "{0} interactions",
+  "毛玻璃透明度": "Glass transparency",
+  "数值越大越通透，只调整背景；深浅色分别保存。": "Higher values reveal more of the backdrop. Light and dark preferences are saved separately."
 }

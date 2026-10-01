@@ -17,6 +17,9 @@ public partial class MainWindow : Window
     private readonly ThemeSettings themeSettings;
     private readonly ThemePalette palette;
     private readonly TopEdgeAutoHide edgeHide;
+    private readonly System.Windows.Threading.DispatcherTimer transparencySaveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private (bool Light, int Value)? pendingTransparency;
+    private bool syncingTransparency = true;
     private VibeGauge.Core.DashboardSnapshot? latestSnapshot;
     public bool IsLightTheme => palette.IsLight;
     public bool HasUserPosition { get; private set; }
@@ -27,7 +30,10 @@ public partial class MainWindow : Window
         themeSettings = new ThemeSettings(viewModel.Paths.LocalDataRoot);
         palette = (ThemePalette)System.Windows.Application.Current.FindResource("ThemePalette");
         palette.IsLight = themeSettings.IsLight;
+        palette.SetTransparency(true, themeSettings.GetTransparency(true));
+        palette.SetTransparency(false, themeSettings.GetTransparency(false));
         InitializeComponent();
+        transparencySaveTimer.Tick += (_, _) => SaveTransparency();
         UpdateTheme();
         DataContext = this.viewModel = viewModel;
         placement = new WindowPlacementStore(viewModel.Paths.LocalDataRoot);
@@ -93,6 +99,7 @@ public partial class MainWindow : Window
 
     private void Theme_Click(object sender, RoutedEventArgs e)
     {
+        SaveTransparency();
         palette.IsLight = !palette.IsLight;
         themeSettings.Save(palette.IsLight);
         UpdateTheme();
@@ -109,6 +116,11 @@ public partial class MainWindow : Window
         UsesSystemBackdrop = WindowAppearance.Apply(this, palette.IsLight);
         WindowSurface.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty,
             UsesSystemBackdrop ? "WindowTintBrush" : "WindowBrush");
+        syncingTransparency = true;
+        TransparencySlider.Value = palette.GetTransparency(palette.IsLight);
+        TransparencySlider.IsEnabled = UsesSystemBackdrop;
+        TransparencyValue.Text = $"{TransparencySlider.Value:0}%";
+        syncingTransparency = false;
         ThemeIcon.Text = palette.IsLight ? "\uE708" : "\uE706";
         ThemeButton.ToolTip = palette.IsLight ? "切换为深色毛玻璃" : "切换为浅色毛玻璃";
         System.Windows.Automation.AutomationProperties.SetName(ThemeButton, (string)ThemeButton.ToolTip);
@@ -116,8 +128,32 @@ public partial class MainWindow : Window
         if (DataContext is DashboardViewModel { IsProviderDetailOpen: true }) UpdateSelectedPanel();
     }
 
+    private void Transparency_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (syncingTransparency) return;
+        var value = (int)Math.Round(e.NewValue);
+        palette.SetTransparency(palette.IsLight, value);
+        TransparencyValue.Text = $"{value}%";
+        pendingTransparency = (palette.IsLight, value);
+        transparencySaveTimer.Stop();
+        transparencySaveTimer.Start();
+    }
+
+    private void SaveTransparency()
+    {
+        transparencySaveTimer.Stop();
+        if (pendingTransparency is not { } pending) return;
+        themeSettings.SaveTransparency(pending.Light, pending.Value);
+        pendingTransparency = null;
+    }
+
     private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == 0x0086 && UsesSystemBackdrop && !SystemParameters.HighContrast && WindowState != WindowState.Minimized) // WM_NCACTIVATE: material appearance only
+        {
+            handled = true;
+            return WindowAppearance.KeepBackdropActive(hwnd);
+        }
         if (message == 0x0231) { moving = true; edgeHide.BeginMove(); } // WM_ENTERSIZEMOVE
         if (message == 0x0232)
         {
@@ -131,6 +167,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        SaveTransparency();
         if (!allowClose)
         {
             e.Cancel = true;

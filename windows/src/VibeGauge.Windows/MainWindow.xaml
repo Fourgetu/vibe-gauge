@@ -113,6 +113,19 @@
                             <TextBlock x:Name="SystemAppVersion" Grid.Column="1" Text="{Binding AppVersionText, StringFormat=VibeGauge {0}}" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="当前运行版本" />
                         </Grid>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock Text="毛玻璃透明度" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="TransparencyValue" HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" />
+                                </DockPanel>
+                                <Slider x:Name="TransparencySlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                                        Style="{StaticResource TransparencySliderStyle}"
+                                        SmallChange="1" LargeChange="10" Margin="0,8,0,4" ValueChanged="Transparency_Changed"
+                                        AutomationProperties.Name="毛玻璃透明度" ToolTip="数值越大越通透，只调整背景；深浅色分别保存。" />
+                                <TextBlock Text="数值越大越通透，只调整背景；深浅色分别保存。" Style="{StaticResource CaptionStyle}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7">
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <TextBlock Text="Token 显示单位" FontWeight="SemiBold" VerticalAlignment="Center" />

@@ -27,7 +27,19 @@ public static class WindowAppearance
         if (DwmExtendFrameIntoClientArea(handle, ref margins) != 0) return false;
         if (HwndSource.FromHwnd(handle)?.CompositionTarget is { } target)
             target.BackgroundColor = Colors.Transparent;
+        KeepBackdropActive(handle);
         return true;
+    }
+
+    // Keep the non-client material active without changing input activation.
+    // WM_ACTIVATE still reaches WPF, so focus, pinning and auto-hide work normally.
+    // lParam=-1 suppresses the standard frame paint on our custom WPF chrome.
+    internal static IntPtr KeepBackdropActive(IntPtr handle)
+    {
+        DefWindowProc(handle, 0x0086, new IntPtr(1), new IntPtr(-1));
+        // TRUE must be returned for the original deactivation notification;
+        // returning DefWindowProc's active-state result can veto focus transfer.
+        return new IntPtr(1);
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -37,4 +49,7 @@ public static class WindowAppearance
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
     [DllImport("dwmapi.dll")]
     private static extern int DwmExtendFrameIntoClientArea(IntPtr window, ref Margins margins);
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProc(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
 }

@@ -6,6 +6,17 @@ namespace VibeGauge.Windows;
 
 public sealed class ThemePalette : INotifyPropertyChanged
 {
+    public const int DefaultLightTransparency = 75;
+    public const int DefaultDarkTransparency = 40;
+    private int lightTransparency = DefaultLightTransparency, darkTransparency = DefaultDarkTransparency;
+    public int GetTransparency(bool lightTheme) => lightTheme ? lightTransparency : darkTransparency;
+    public void SetTransparency(bool lightTheme, int value)
+    {
+        value = Math.Clamp(value, 0, 100);
+        if (GetTransparency(lightTheme) == value) return;
+        if (lightTheme) lightTransparency = value; else darkTransparency = value;
+        if (lightTheme == IsLight) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
+    }
     // Bound colors keep shared brushes live, including styles and programmatic panels.
     private static readonly IReadOnlyDictionary<string, (string Dark, string Light)> Colors =
         new Dictionary<string, (string, string)>
@@ -60,5 +71,13 @@ public sealed class ThemePalette : INotifyPropertyChanged
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
         }
     }
-    public Color this[string role] => (Color)System.Windows.Media.ColorConverter.ConvertFromString(IsLight ? Colors[role].Light : Colors[role].Dark);
+    public Color this[string role]
+    {
+        get
+        {
+            var color = (Color)System.Windows.Media.ColorConverter.ConvertFromString(IsLight ? Colors[role].Light : Colors[role].Dark);
+            if (role == "WindowTintBrush") color.A = (byte)Math.Round(255 * (100 - GetTransparency(IsLight)) / 100d);
+            return color;
+        }
+    }
 }
