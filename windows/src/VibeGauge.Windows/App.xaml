@@ -34,6 +34,7 @@
         <SolidColorBrush x:Key="TooltipTextBrush" Color="{Binding [TooltipTextBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="TooltipBorderBrush" Color="{Binding [TooltipBorderBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="SelectedSegmentBrush" Color="{Binding [SelectedSegmentBrush], Source={StaticResource ThemePalette}}" />
+        <SolidColorBrush x:Key="SelectedSegmentTextBrush" Color="{Binding [SelectedSegmentTextBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="PopupBrush" Color="{Binding [PopupBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="GripBrush" Color="{Binding [GripBrush], Source={StaticResource ThemePalette}}" />
         <SolidColorBrush x:Key="SubtleSurfaceBrush" Color="{Binding [SubtleSurfaceBrush], Source={StaticResource ThemePalette}}" />
@@ -192,7 +193,14 @@
             </Setter>
         </Style>
 
+        <DataTemplate x:Key="SegmentLabelTemplate">
+            <TextBlock Text="{Binding}"
+                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"
+                       FontSize="{Binding FontSize, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"
+                       FontWeight="{Binding FontWeight, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}" />
+        </DataTemplate>
         <Style x:Key="SegmentStyle" TargetType="RadioButton">
+            <Setter Property="ContentTemplate" Value="{StaticResource SegmentLabelTemplate}" />
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -203,15 +211,16 @@
                     <ControlTemplate TargetType="RadioButton">
                         <Border x:Name="Segment" Background="{StaticResource TransparentBrush}" CornerRadius="6"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Segment" Property="Background" Value="{StaticResource SelectedSegmentBrush}" />
-                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Segment" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Segment" Property="Background" Value="{StaticResource SelectedSegmentBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource SelectedSegmentTextBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -359,16 +368,18 @@
             </ControlTemplate></Setter.Value></Setter>
         </Style>
         <Style x:Key="LanguageSegmentStyle" TargetType="RadioButton">
+            <Setter Property="ContentTemplate" Value="{StaticResource SegmentLabelTemplate}" />
             <Setter Property="Padding" Value="9,4" /><Setter Property="Cursor" Value="Hand" />
             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
             <Setter Property="FontSize" Value="12" /><Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
                 <Border x:Name="Surface" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"
+                                      TextElement.Foreground="{TemplateBinding Foreground}" />
                 </Border>
                 <ControlTemplate.Triggers>
-                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource CardRaisedBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" /></Trigger>
                     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
+                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource SelectedSegmentBrush}" /><Setter Property="Foreground" Value="{DynamicResource SelectedSegmentTextBrush}" /></Trigger>
                     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource TextPrimaryBrush}" /><Setter TargetName="Surface" Property="BorderThickness" Value="1" /></Trigger>
                 </ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
