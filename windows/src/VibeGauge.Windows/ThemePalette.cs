@@ -11,19 +11,18 @@ public sealed class ThemePalette : INotifyPropertyChanged
         new Dictionary<string, (string, string)>
         {
             ["WindowBrush"] = ("#FF292A2F", "#FFF1F3F7"),
-            // Desktop Acrylic already supplies the blur.  macOS builds its light
-            // hierarchy from subtle secondary (dark) overlays, so white-on-white
-            // surfaces are avoided here as well.
-            ["WindowTintBrush"] = ("#D2202126", "#40E1E4E7"),
-            ["PanelBrush"] = ("#0AFFFFFF", "#08000000"),
-            ["CardBrush"] = ("#12FFFFFF", "#10000000"),
-            ["CardRaisedBrush"] = ("#20FFFFFF", "#18000000"),
-            ["HoverBrush"] = ("#30FFFFFF", "#18000000"),
+            // Acrylic supplies the material. Keep its tint visible and build
+            // nested surfaces from subtle secondary overlays in either theme.
+            ["WindowTintBrush"] = ("#98202126", "#40E1E4E7"),
+            ["PanelBrush"] = ("#08FFFFFF", "#08000000"),
+            ["CardBrush"] = ("#0EFFFFFF", "#10000000"),
+            ["CardRaisedBrush"] = ("#1CFFFFFF", "#18000000"),
+            ["HoverBrush"] = ("#24FFFFFF", "#18000000"),
             ["BorderBrush"] = ("#14FFFFFF", "#22000000"),
             ["BorderStrongBrush"] = ("#26FFFFFF", "#39000000"),
             ["TextPrimaryBrush"] = ("#FFE5E5E8", "#FF20242C"),
-            ["TextSecondaryBrush"] = ("#FFB1B1B9", "#FF323842"),
-            ["TextMutedBrush"] = ("#FF9999A2", "#FF3B424D"),
+            ["TextSecondaryBrush"] = ("#FFD0D2D7", "#FF323842"),
+            ["TextMutedBrush"] = ("#FFC6CAD0", "#FF3B424D"),
             ["GoodBrush"] = ("#FF32D05D", "#FF137B3A"),
             ["GoodDimBrush"] = ("#2832D05D", "#201B8844"),
             ["WarningBrush"] = ("#FFFF9A36", "#FF9A4A00"),
@@ -40,8 +39,8 @@ public sealed class ThemePalette : INotifyPropertyChanged
             ["TooltipBackgroundBrush"] = ("#FF24262E", "#FFFAFBFE"),
             ["TooltipTextBrush"] = ("#FFF5F7FB", "#FF1D2633"),
             ["TooltipBorderBrush"] = ("#FF686E7C", "#FF929BAA"),
-            ["SelectedSegmentBrush"] = ("#32FFFFFF", "#B03A403C"),
-            ["SelectedSegmentTextBrush"] = ("#FFE5E5E8", "#FFFFFFFF"),
+            ["SelectedSegmentBrush"] = ("#B0696C6A", "#B03A403C"),
+            ["SelectedSegmentTextBrush"] = ("#FFFFFFFF", "#FFFFFFFF"),
             ["PopupBrush"] = ("#FF35363D", "#FFF7F8FB"),
             ["GripBrush"] = ("#36FFFFFF", "#55000000"),
             ["SubtleSurfaceBrush"] = ("#08FFFFFF", "#06000000"),
