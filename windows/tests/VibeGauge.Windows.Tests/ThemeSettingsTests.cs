@@ -37,4 +37,16 @@ public sealed class ThemeSettingsTests
         Assert.Equal(255, palette["TooltipBackgroundBrush"].A);
         Assert.True(palette["TooltipTextBrush"].R < palette["TooltipBackgroundBrush"].R);
     }
+
+    [Fact]
+    public void LightPaletteKeepsAcrylicBackdropVisibleThroughNestedSurfaces()
+    {
+        var palette = new ThemePalette { IsLight = true };
+        Assert.InRange(palette["WindowTintBrush"].A, 1, 0x70);
+        Assert.InRange(palette["PanelBrush"].A, 1, 0x30);
+        Assert.InRange(palette["CardBrush"].A, 1, 0x60);
+        Assert.InRange(palette["CardRaisedBrush"].A, 1, 0x90);
+        Assert.True(palette["TextSecondaryBrush"].R < palette["WindowBrush"].R);
+        Assert.True(palette["TextMutedBrush"].R < palette["WindowBrush"].R);
+    }
 }

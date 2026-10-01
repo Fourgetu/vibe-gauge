@@ -11,16 +11,18 @@ public sealed class ThemePalette : INotifyPropertyChanged
         new Dictionary<string, (string, string)>
         {
             ["WindowBrush"] = ("#FF292A2F", "#FFF1F3F7"),
-            ["WindowTintBrush"] = ("#D2202126", "#D9F4F5F8"),
-            ["PanelBrush"] = ("#0AFFFFFF", "#60FFFFFF"),
-            ["CardBrush"] = ("#12FFFFFF", "#A6FFFFFF"),
-            ["CardRaisedBrush"] = ("#20FFFFFF", "#D6FFFFFF"),
+            // Desktop Acrylic already supplies the light material's tint and blur.
+            // Keep overlays light so nested panels do not turn the backdrop opaque.
+            ["WindowTintBrush"] = ("#D2202126", "#50F6F8FA"),
+            ["PanelBrush"] = ("#0AFFFFFF", "#14FFFFFF"),
+            ["CardBrush"] = ("#12FFFFFF", "#38FFFFFF"),
+            ["CardRaisedBrush"] = ("#20FFFFFF", "#60FFFFFF"),
             ["HoverBrush"] = ("#30FFFFFF", "#18000000"),
             ["BorderBrush"] = ("#14FFFFFF", "#22000000"),
             ["BorderStrongBrush"] = ("#26FFFFFF", "#39000000"),
             ["TextPrimaryBrush"] = ("#FFE5E5E8", "#FF20242C"),
-            ["TextSecondaryBrush"] = ("#FFB1B1B9", "#FF4D535E"),
-            ["TextMutedBrush"] = ("#FF9999A2", "#FF626976"),
+            ["TextSecondaryBrush"] = ("#FFB1B1B9", "#FF414854"),
+            ["TextMutedBrush"] = ("#FF9999A2", "#FF505866"),
             ["GoodBrush"] = ("#FF32D05D", "#FF137B3A"),
             ["GoodDimBrush"] = ("#2832D05D", "#201B8844"),
             ["WarningBrush"] = ("#FFFF9A36", "#FF9A4A00"),
@@ -40,7 +42,7 @@ public sealed class ThemePalette : INotifyPropertyChanged
             ["SelectedSegmentBrush"] = ("#32FFFFFF", "#E8FFFFFF"),
             ["PopupBrush"] = ("#FF35363D", "#FFF7F8FB"),
             ["GripBrush"] = ("#36FFFFFF", "#55000000"),
-            ["SubtleSurfaceBrush"] = ("#08FFFFFF", "#45FFFFFF"),
+            ["SubtleSurfaceBrush"] = ("#08FFFFFF", "#10FFFFFF"),
             ["HeatZeroBrush"] = ("#FF2D2F2E", "#FFE0E5EB")
         };
 
