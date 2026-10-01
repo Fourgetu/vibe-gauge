@@ -106,7 +106,9 @@ Version **1.6.5** adds four statistics summary cards, token distribution, indepe
 
 Version **1.6.6** simplifies network cards, adds conservative DNS/IPv6 health checks and daily usage by project while retaining agent totals, and separates visible one-second process/rate updates from five-second log scans. Official/custom quota sources refresh every three minutes; Codex quotas retain their one-minute cadence. See [v1.6.6 release notes](docs/releases/v1.6.6.md) for migration and measurement details.
 
-Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.6/VibeGauge-Setup-v1.6.6.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.6/VibeGauge-Windows-x64-v1.6.6.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.6). Windows binaries are unsigned and may trigger SmartScreen.
+Version **1.6.7** refines light/dark acrylic layers, reduces stacked white surfaces, reveals more of the dark backdrop, and unifies navigation and language selection with gray backgrounds and white labels. See [v1.6.7 release notes](docs/releases/v1.6.7.md).
+
+Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.7/VibeGauge-Setup-v1.6.7.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.7/VibeGauge-Windows-x64-v1.6.7.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.7). Windows binaries are unsigned and may trigger SmartScreen.
 
 The Windows build produces a portable ZIP and a per-user installer. Both are self-contained and require neither .NET nor Python at runtime. Use `VibeGauge-Setup-*.exe` to install; `VibeGauge.exe` is the tray application, not the installer. Keep its companion `VibeGauge.Proxy.exe` beside it when using the portable build.
 
