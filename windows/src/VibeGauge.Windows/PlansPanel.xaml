@@ -64,6 +64,15 @@
                                     <TextBlock Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="5,0,0,0" />
                                 </DockPanel>
                                 <TextBlock Text="{Binding CompactQuotaSummary}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding ShowCompactQuotas, Converter={StaticResource BoolToVisibility}}" />
+                                <ItemsControl ItemsSource="{Binding Quotas}" Visibility="{Binding ShowQuotaRings, Converter={StaticResource BoolToVisibility}}" Margin="0,5,0,0">
+                                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate><DataTemplate>
+                                        <StackPanel Margin="0,0,12,0" ToolTip="{Binding Tooltip}">
+                                            <local:QuotaRing />
+                                            <TextBlock Text="{Binding Label}" FontSize="10.5" TextAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        </StackPanel>
+                                    </DataTemplate></ItemsControl.ItemTemplate>
+                                </ItemsControl>
                                 <Grid Visibility="{Binding ShowQuotaMeters, Converter={StaticResource BoolToVisibility}}">
                                     <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                                     <ItemsControl ItemsSource="{Binding PrimaryQuotas}" ItemTemplate="{StaticResource QuotaMeter}">

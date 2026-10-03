@@ -25,7 +25,8 @@ public sealed class NetworkPanel : Wpf.UserControl
     private string primaryName = "";
     private readonly List<(string Name, Wpf.TextBlock Label)> adapterRates = [];
 
-    public NetworkPanel()
+    public NetworkPanel() : this(true) { }
+    public NetworkPanel(bool automaticStatus)
     {
         var body = new Wpf.StackPanel { Margin = new Thickness(0, 0, 5, 12) };
         var header = new Wpf.DockPanel { Margin = new Thickness(2, 0, 0, 5) };
@@ -73,6 +74,7 @@ public sealed class NetworkPanel : Wpf.UserControl
         diagnosticBody.Children.Add(actions); diagnosticBody.Children.Add(result); diagnosticBody.Children.Add(details);
         diagnosticDetails = Disclosure("诊断详情", diagnosticBody, "NetworkDiagnosticDetails");
         body.Children.Add(diagnosticDetails);
+        body.Children.Add(new OpenAiStatusPanel(automaticStatus, OpenAiStatus.FetchAsync));
         RenderExits(null); RenderProxy(null); RenderLocal();
         Content = new Wpf.ScrollViewer { Content = body, VerticalScrollBarVisibility = Wpf.ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = Wpf.ScrollBarVisibility.Disabled };

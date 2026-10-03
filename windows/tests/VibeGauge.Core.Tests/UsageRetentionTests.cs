@@ -94,6 +94,19 @@ public sealed class UsageRetentionTests : IDisposable
     }
 
     [Fact]
+    public void CodexTotalIncludesCompactedHistoryAndExcludesFutureRecords()
+    {
+        Write("Codex", [Line("Codex", 0, now.AddDays(-120)), Line("Codex", 1), Line("Codex", 2, now.AddDays(2))]);
+        var scanner = new UsageScanner(Paths);
+        foreach (var result in new[] { scanner.Scan(), scanner.Scan(), new UsageScanner(Paths).Scan() })
+        {
+            Assert.Equal(110, result.Cli.TotalTokens);
+            Assert.Equal(220, result.CodexTotal?.TotalTokens);
+            Assert.Equal(2, result.CodexTotal?.Turns);
+        }
+    }
+
+    [Fact]
     public void MovingCopyingAndRestoringCodexSessionDoesNotDoubleCount()
     {
         var path = Write("Codex", [Line("Codex", 1), Line("Codex", 2)]);
@@ -302,6 +315,11 @@ public sealed class UsageRetentionTests : IDisposable
         Assert.Equal(today * 110, selected.TotalTokens);
         Assert.Equal(today * 110, selected.Models.Sum(x => x.TotalTokens));
         Assert.Equal(all * 110, result.Statistics.Days.Sum(x => x.TotalTokens));
+        if (source == "Codex")
+        {
+            Assert.Equal(all, result.CodexTotal?.Turns);
+            Assert.Equal(all * 110, result.CodexTotal?.TotalTokens);
+        }
         Assert.Equal(0, result.Api.Calls);
     }
 

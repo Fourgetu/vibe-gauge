@@ -34,7 +34,7 @@ internal static class ReauditPanelChecks
         vm.RefreshDiagnosticsAsync().GetAwaiter().GetResult();
         Assert.Equal(report.Exits, notified!.Diagnostics!.Exits);
         Assert.Equal(notified, vm.CurrentSnapshot);
-        var panel = new NetworkPanel { DataContext = vm };
+        var panel = new NetworkPanel(false) { DataContext = vm };
         var window = new Window { Content = panel, Width = 420, Height = 900, Left = -20000, Top = -20000, ShowActivated = false, ShowInTaskbar = false };
         window.SetResourceReference(Control.BackgroundProperty, "WindowBrush");
         try

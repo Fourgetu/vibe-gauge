@@ -20,12 +20,12 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     private DateTimeOffset? codexQuotaSince;
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
-        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null)
+        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null)
     {
         PlatformStatus[] platforms =
         [
             ReadClaude(processes.ClaudeSessions),
-            ReadCodex(processes.CodexSessions),
+            ReadCodex(processes.CodexSessions, usage, codexTotal),
             ReadGemini(processes.GeminiSessions),
             ReadDesktopUsage(ZCodeUsage.SourceName, paths.ZCodeRoot, processes.ZCodeProcesses, usage, zcodeTotal),
             ReadPiDesktop(processes.PiDesktopProcesses, usage, piDesktopTotal),
@@ -119,7 +119,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
         return new("Claude", tier, running, sessions, dataState, StateDetail(dataState), five, weekly, secondaryName, secondaryFive, secondaryWeek);
     }
 
-    private PlatformStatus ReadCodex(int sessionCount)
+    private PlatformStatus ReadCodex(int sessionCount, UsageSummary? usage, UsageSourceSummary? total)
     {
         var running = sessionCount > 0;
         var login = ReadCodexLogin();
@@ -137,7 +137,15 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
                 login.ReadFailed ? ProviderDataState.ReadFailed : ProviderDataState.NoQuota,
                 login.ReadFailed ? "当前登录信息读取失败；未采用历史订阅额度。" : "当前本机登录为 API Key；不使用历史订阅套餐和额度。",
                 ExtraQuotas: codexExtra, QuotaScope: login.Scope);
-            return codexLive?.Apply(unavailable, null) ?? unavailable;
+            unavailable = codexLive?.Apply(unavailable, null) ?? unavailable;
+            if (login.ApiKey && !login.ReadFailed)
+            {
+                var today = usage?.Sources.FirstOrDefault(x => x.Name == "Codex");
+                var tokens = new DesktopTokenDisplay(today, total, Directory.Exists(paths.CodexRoot));
+                unavailable = unavailable with { DesktopTokens = tokens,
+                    DataState = total?.State == UsageDataState.ReadFailed ? ProviderDataState.ReadFailed : ProviderDataState.Available };
+            }
+            return unavailable;
         }
         // Quota events do not identify their account. Keep only reports after the
         // observed login boundary; token refreshes for the same identity retain it.

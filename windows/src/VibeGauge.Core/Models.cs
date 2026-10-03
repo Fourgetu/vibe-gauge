@@ -247,7 +247,7 @@ public sealed record ProxyRuntimeStatus(
 public sealed record UsageScanResult(UsageSummary Cli, ApiUsageSummary Api, UsageStatistics? Statistics = null,
     UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null,
     UsageSourceSummary? WorkBuddyTotal = null, UsageSourceSummary? DshTotal = null,
-    IReadOnlyList<PlatformStatus>? Plans = null);
+    IReadOnlyList<PlatformStatus>? Plans = null, UsageSourceSummary? CodexTotal = null);
 
 public sealed record UsageScannerDiagnostics(int FilesDiscovered, int FilesRead, long BytesRead);
 

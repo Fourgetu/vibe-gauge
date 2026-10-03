@@ -493,7 +493,8 @@ public sealed record PlatformRow(
     bool CanOpenDetail = false)
 {
     public string DisplayDetail => CompactDetail.Length > 0 ? CompactDetail : Detail;
-    public bool ShowQuotaMeters => HasQuota && Name != "Gemini";
+    public bool ShowQuotaMeters => HasQuota && Name is not ("Gemini" or "Codex");
+    public bool ShowQuotaRings => HasQuota && Name == "Codex";
     public bool ShowCompactQuotas => HasQuota && Name == "Gemini";
     public bool ShowForecast => HasForecast && !IsCompact;
     public bool ShowReset => HasQuota && !IsCompact;
@@ -524,7 +525,7 @@ public sealed record PlatformRow(
         if (value.DesktopTokens is { } desktopTokens)
         {
             var display = desktopTokens.Format(unit);
-            value = value with { Detail = display.Detail, CompactDetail = display.Compact };
+            value = value with { Detail = display.Detail + (value.Name == "Codex" ? "\n本地 Codex 日志统计，包含账号和 API 模式历史；不代表 API 账单。" : ""), CompactDetail = display.Compact };
         }
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
@@ -533,7 +534,7 @@ public sealed record PlatformRow(
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
-        var detail = value.AlwaysShowDetail || desktop ? value.Detail : value.DataState switch
+        var detail = value.AlwaysShowDetail || desktop || value.DesktopTokens is not null ? value.Detail : value.DataState switch
         {
             ProviderDataState.NotSignedIn => "未登录",
             ProviderDataState.NoQuota => "未检测到额度",
@@ -562,7 +563,7 @@ public sealed record PlatformRow(
             quotas, quotas.Length > 0, quotas.Length == 0,
             value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
             quotas.Length == 0 || value.AlwaysShowDetail,
-            desktop || value.AlwaysShowDetail || value.Name == "Gemini",
+            desktop || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
                 ? string.Join("\n", detail.Split('\n').Take(2)) : "", ProviderDetails.CanOpen(value));
     }

@@ -219,5 +219,28 @@ public sealed class CodexAccountQuotaTests : IDisposable
         Assert.Empty(new AttentionPolicy(Paths).Evaluate(snapshot, options));
     }
 
+    [Fact]
+    public void ApiModeShowsNumericUsageAndAccountModeRestoresOnlyFreshQuota()
+    {
+        var today = new UsageSourceSummary("Codex", UsageDataState.Available, 2, 100, 50, 0, 20, 5, "");
+        var total = today with { Turns = 10, ContextTokens = 1000, OutputTokens = 200 };
+        var usage = UsageSummary.Empty with { Sources = [today] };
+        var scanner = new QuotaScanner(Paths);
+        File.WriteAllText(Auth, """{"auth_mode":"apikey","OPENAI_API_KEY":"fixture"}""");
+        PlatformStatus Scan() => scanner.Scan(ProcessReport.Empty, usage, codexTotal: total).Single(x => x.Name == "Codex");
+        var api = Scan();
+        Assert.Equal(120, api.DesktopTokens?.Today?.TotalTokens);
+        Assert.Equal(1200, api.DesktopTokens?.Total?.TotalTokens);
+        Assert.Null(api.Weekly);
+        Login("pro", "new", now.AddMinutes(-2));
+        File.WriteAllText(Log, Quota("pro", now.AddMinutes(-1), 37));
+        var account = Scan();
+        Assert.Null(account.DesktopTokens); Assert.Equal(37, account.Weekly?.UsedPercent);
+        File.WriteAllText(Auth, """{"auth_mode":"apikey","OPENAI_API_KEY":"fixture"}""");
+        Assert.NotNull(Scan().DesktopTokens); Assert.Null(Scan().Weekly);
+        File.WriteAllText(Auth, "broken");
+        Assert.Null(Scan().DesktopTokens); Assert.Equal(ProviderDataState.ReadFailed, Scan().DataState);
+    }
+
     public void Dispose() { if (Directory.Exists(home)) Directory.Delete(home, true); }
 }

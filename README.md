@@ -110,7 +110,9 @@ Version **1.6.7** refines light/dark acrylic layers, reduces stacked white surfa
 
 Version **1.6.8** adds a System page glass-transparency control with independent light/dark persistence and keeps Desktop Acrylic visible while the window is inactive, covered by another app, or reopened. See [v1.6.8 release notes](docs/releases/v1.6.8.md).
 
-Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.8/VibeGauge-Setup-v1.6.8.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.8/VibeGauge-Windows-x64-v1.6.8.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.8). Windows binaries are unsigned and may trigger SmartScreen.
+Version **1.6.9** shows today's and cumulative local Codex tokens in API-key mode and quota rings in account mode. The Network page adds native OpenAI service groups, official uptime, and 90-day status history, refreshed every three minutes while visible. See [v1.6.9 release notes](docs/releases/v1.6.9.md).
+
+Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.9/VibeGauge-Setup-v1.6.9.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.9/VibeGauge-Windows-x64-v1.6.9.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.9). Windows binaries are unsigned and may trigger SmartScreen.
 
 The Windows build produces a portable ZIP and a per-user installer. Both are self-contained and require neither .NET nor Python at runtime. Use `VibeGauge-Setup-*.exe` to install; `VibeGauge.exe` is the tray application, not the installer. Keep its companion `VibeGauge.Proxy.exe` beside it when using the portable build.
 

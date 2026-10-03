@@ -35,8 +35,24 @@ internal static class ProviderCardChecks
         foreach (var codexTier in new[] { "Pro", "API Key" })
         {
             cards[1] = PlatformRow.From(codexTier == "API Key"
-                ? new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.NoQuota, "API Key 模式无订阅额度")
-                : new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.Available, "本地额度数据", Weekly: quota));
+                ? new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.Available, "", DesktopTokens: new(
+                    new("Codex", UsageDataState.Available, 12, 100000, 50000, 0, 20000, 1000, ""),
+                    new("Codex", UsageDataState.Available, 90, 1000000, 500000, 0, 200000, 10000, ""), true))
+                : new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.Available, "本地额度数据", FiveHour: quota, Weekly: quota));
+            Assert.Equal(codexTier == "Pro", cards[1].ShowQuotaRings);
+            if (codexTier == "API Key")
+            {
+                Assert.Contains("今日", cards[1].DisplayDetail);
+                Assert.Contains("累计", cards[1].DisplayDetail);
+                Assert.DoesNotContain("未检测到额度", cards[1].DisplayDetail);
+                var source = new UsageSourceSummary("Codex", UsageDataState.Available, 1, 1200000, 0, 0, 0, 0, "");
+                var api = new PlatformStatus("Codex", codexTier, true, 1, ProviderDataState.Available, "",
+                    DesktopTokens: new(source with { Turns = 0, ContextTokens = 0, State = UsageDataState.NoLocalStats }, source, true));
+                Assert.Contains("今日 0", PlatformRow.From(api).DisplayDetail);
+                Assert.Contains("1.2 M", PlatformRow.From(api, unit: TokenUnit.International).DisplayDetail);
+                Assert.Contains("本地", PlatformRow.From(api).Detail);
+                Assert.False(PlatformRow.From(api).HasQuota);
+            }
             palette.IsLight = light;
             var panel = new PlansPanel { DataContext = new { Platforms = cards } };
             var window = new Window { Content = panel, Width = width, Height = 800, Left = -20000, Top = -20000,
@@ -50,6 +66,7 @@ internal static class ProviderCardChecks
                 var borders = Descendants<Border>(panel).Where(x => x.DataContext is PlatformRow && x.ToolTip is string)
                     .ToDictionary(x => ((PlatformRow)x.DataContext).Name);
                 Assert.Equal(cards.Length, borders.Count);
+                Assert.Equal(codexTier == "Pro" ? 2 : 0, Descendants<QuotaRing>(borders["Codex"]).Count(x => x.IsVisible));
                 var codexTitle = Descendants<TextBlock>(borders["Codex"]).Single(x => x.Text == "Codex");
                 var codexBadge = Descendants<TextBlock>(borders["Codex"]).Single(x => x.Text == codexTier);
                 AssertFitsText(codexTitle);

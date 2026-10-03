@@ -144,6 +144,8 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
                     models.Sum(x => x.Output), models.Sum(x => x.Thinking), ""));
             }
         }
+        if (provider.Name == "Codex" && provider.DesktopTokens is not null)
+            body.Children.Add(InsightUi.Text("本地 Codex 日志统计，包含账号和 API 模式历史；不代表 API 账单。"));
         if (provider.ReportedTokens is { HasValues: true } reported)
         {
             var section = Section("站点回报用量");

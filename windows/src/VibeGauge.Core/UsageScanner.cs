@@ -455,9 +455,12 @@ public sealed partial class UsageScanner
             buddyTotal = buddyTotal with { State = UsageDataState.ReadFailed, Note = buddyError };
         if (errors.FirstOrDefault(x => x.StartsWith(DshUsage.SourceName + " ", StringComparison.Ordinal)) is { } dshError)
             dshTotal = dshTotal with { State = UsageDataState.ReadFailed, Note = dshError };
+        var codexTotal = SourceSummary("Codex", codex.Where(x => x.Timestamp <= now).ToArray(), codexFiles.Length > 0, "本地无 token 统计");
+        if (errors.FirstOrDefault(x => x.StartsWith("Codex ", StringComparison.Ordinal)) is { } codexError)
+            codexTotal = codexTotal with { State = UsageDataState.ReadFailed, Note = codexError };
         var statistics = UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh), now, apiRecords: api);
         return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
-            WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now));
+            WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal));
     }
 
     private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)

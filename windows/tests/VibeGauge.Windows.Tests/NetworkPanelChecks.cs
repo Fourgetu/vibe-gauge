@@ -28,7 +28,7 @@ internal static class NetworkPanelChecks
             { DnsSummary = dns.Message, DnsVerdict = dns.Verdict, Ipv6Verdict = ipv6.Verdict };
         NetworkAdapterInfo[] adapters = [new("Wi-Fi", "Wireless80211", "192.168.1.23 · fe80::1234", "192.168.1.1", "198.18.0.2", 2621440, 190464),
             new("Tailscale", "Tunnel", "100.64.0.8", "", "100.100.100.100", 1000, 2000)];
-        var panel = new NetworkPanel();
+        var panel = new NetworkPanel(false);
         var window = new Window { Content = panel, Width = 420, Height = 850, Left = -20000, Top = -20000,
             ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None, Padding = new Thickness(14) };
         window.SetResourceReference(Control.BackgroundProperty, "WindowBrush");
@@ -58,7 +58,7 @@ internal static class NetworkPanelChecks
                 ((ThemePalette)Application.Current.FindResource("ThemePalette")).IsLight = light; Layout(window);
                 Assert.True(scroll.ExtentWidth <= scroll.ViewportWidth + 1);
                 // Four cards now include the DNS/IPv6 summary; overflow remains vertical.
-                Assert.InRange(scroll.ExtentHeight, 400, 1100);
+                Assert.InRange(scroll.ExtentHeight, 400, 1100 + Elements<OpenAiStatusPanel>(panel).Single().ActualHeight + 10);
                 if (language == "en") Assert.DoesNotMatch(@"[\u4e00-\u9fff]", VisibleText(panel));
                 Capture(window, $"network-{language}-{(light ? "light" : "dark")}-{width}.png");
                 scroll.ScrollToEnd(); Layout(window);
