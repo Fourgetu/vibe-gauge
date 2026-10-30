@@ -70,7 +70,7 @@ public sealed class DashboardCoordinator : IDisposable
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
     public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateCodex(); }
-    public void Dispose() => quotas.Dispose();
+    public void Dispose() { quotas.Dispose(); official.Dispose(); }
     public bool EnsureDurableHistory()
     {
         var result = usage.Scan();

@@ -69,7 +69,7 @@ public sealed record PlatformStatus(
     ProviderTokenTotals? ReportedTokens = null,
     ProviderMetadata? Metadata = null,
     IReadOnlyList<NamedQuota>? ExtraQuotas = null,
-    string QuotaScope = "")
+    string QuotaScope = "", RemoteUsageReport? RemoteUsage = null)
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public string QuotaHistoryKey => QuotaScope.Length == 0 ? Name : Name + "|" + QuotaScope;

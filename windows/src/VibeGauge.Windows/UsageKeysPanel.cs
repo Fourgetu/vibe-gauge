@@ -16,7 +16,7 @@ public sealed class UsageKeysPanel : Wpf.UserControl
         Content = body;
         body.Children.Add(InsightUi.Text("额度监控 · API 密钥", true));
         const string customOption = "自定义 · sub2api";
-        var host = new Wpf.ComboBox { Name = "UsageProvider", ItemsSource = UsageKeyVault.Hosts.Append(customOption).ToArray(), SelectedIndex = 0, Margin = new Thickness(0, 3, 0, 8) };
+        var host = new Wpf.ComboBox { Name = "UsageProvider", ItemsSource = UsageKeyVault.Hosts.Concat([CodexProxyRsParser.Kind, customOption]).ToArray(), SelectedIndex = 0, Margin = new Thickness(0, 3, 0, 8) };
         var providerText = new FrameworkElementFactory(typeof(Wpf.TextBlock));
         providerText.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextPrimaryBrush");
         providerText.SetBinding(Wpf.TextBlock.TextProperty, new System.Windows.Data.Binding("."));
@@ -40,7 +40,8 @@ public sealed class UsageKeysPanel : Wpf.UserControl
         custom.Children.Add(InsightUi.Text("站点地址"));
         custom.Children.Add(endpoint);
         custom.Children.Add(InsightUi.Text("https://your-site.example 或其 /v1 地址"));
-        custom.Children.Add(InsightUi.Text("仅查询 sub2api /v1/usage；密钥只发往所填站点，不跟随跳转。"));
+        var hint = InsightUi.Text("仅查询 sub2api /v1/usage；密钥只发往所填站点，不跟随跳转。");
+        custom.Children.Add(hint);
         var status = InsightUi.Text("");
         status.Name = "UsageStatus";
         status.Visibility = Visibility.Collapsed;
@@ -60,11 +61,15 @@ public sealed class UsageKeysPanel : Wpf.UserControl
             try
             {
                 if (IsFixture()) { Feedback("预览模式不保存真实凭据", true); return; }
-                if ((string)host.SelectedItem == customOption)
+                if ((string)host.SelectedItem == CodexProxyRsParser.Kind)
+                    UsageKeyVault.SaveCodexProxyRs(endpoint.Text, secret.Password.Trim(), label.Text);
+                else if ((string)host.SelectedItem == customOption)
                     UsageKeyVault.SaveCustom(endpoint.Text, secret.Password.Trim(), label.Text);
                 else UsageKeyVault.Save((string)host.SelectedItem, secret.Password.Trim());
                 secret.Clear();
-                Feedback("已保存到 Windows 凭据管理器；在「订阅」查看额度，每 3 分钟更新。");
+                Feedback((string)host.SelectedItem == CodexProxyRsParser.Kind
+                    ? "已保存；在「订阅」查看额度，在 API 页查看服务端用量，每 3 分钟更新。"
+                    : "已保存到 Windows 凭据管理器；在「订阅」查看额度，每 3 分钟更新。");
                 Populate();
                 if (DataContext is DashboardViewModel vm) { vm.InvalidateOfficial(); await vm.RefreshAsync(); }
             }
@@ -85,7 +90,13 @@ public sealed class UsageKeysPanel : Wpf.UserControl
                 UsageKeyVault.ValidateKey(key);
                 host.IsEnabled = custom.IsEnabled = secret.IsEnabled = save.IsEnabled = button.IsEnabled = false;
                 Feedback("正在查询 " + new Uri(address).Authority + "…");
-                var result = await Sub2ApiClient.Shared.ProbeAsync(address, key, "连接测试", cancellation.Token);
+                PlatformStatus result;
+                if ((string)host.SelectedItem == CodexProxyRsParser.Kind)
+                {
+                    using var client = new CodexProxyRsClient();
+                    result = await client.ProbeAsync(address, key, "连接测试", cancellation.Token);
+                }
+                else result = await Sub2ApiClient.Shared.ProbeAsync(address, key, "连接测试", cancellation.Token);
                 Feedback((result.DataState == ProviderDataState.Available ? "连接成功（尚未保存）\n" : "") + result.Detail,
                     result.DataState != ProviderDataState.Available);
             }
@@ -103,7 +114,9 @@ public sealed class UsageKeysPanel : Wpf.UserControl
         secret.PasswordChanged += (_, _) => status.Visibility = Visibility.Collapsed;
         host.SelectionChanged += (_, _) =>
         {
-            custom.Visibility = test.Visibility = (string)host.SelectedItem == customOption ? Visibility.Visible : Visibility.Collapsed;
+            var cpr = (string)host.SelectedItem == CodexProxyRsParser.Kind;
+            custom.Visibility = test.Visibility = cpr || (string)host.SelectedItem == customOption ? Visibility.Visible : Visibility.Collapsed;
+            hint.Text = cpr ? "填写客户端 API Key，无需管理员密码；查询额度和服务端用量，不跟随跳转。" : "仅查询 sub2api /v1/usage；密钥只发往所填站点，不跟随跳转。";
             secret.Clear();
             status.Visibility = Visibility.Collapsed;
         };
@@ -136,7 +149,7 @@ public sealed class UsageKeysPanel : Wpf.UserControl
                 });
                 remove.ToolTip = "删除已登记密钥";
                 Wpf.DockPanel.SetDock(remove, Wpf.Dock.Right); row.Children.Add(remove);
-                var text = InsightUi.Text(key.DisplayName + " · " + key.Fingerprint + (key.IsCustom ? "\n" + key.Host + " · sub2api" : ""));
+                var text = InsightUi.Text(key.DisplayName + " · " + key.Fingerprint + (key.IsCustom ? "\n" + key.Host + " · " + (key.IsCodexProxyRs ? CodexProxyRsParser.Kind : "sub2api") : ""));
                 text.ToolTip = key.Host;
                 row.Children.Add(text); saved.Children.Add(row);
             }

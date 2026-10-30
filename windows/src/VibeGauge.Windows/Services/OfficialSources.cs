@@ -6,26 +6,31 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-public sealed class OfficialSources(AppPaths paths)
+public sealed class OfficialSources(AppPaths paths) : IDisposable
 {
+    private readonly Dictionary<UsageKeyIdentity, CodexProxyRsClient> cprClients = [];
+    private readonly CancellationTokenSource lifetime = new();
+    private int generation, pendingGeneration;
+    private bool disposed;
     private static readonly HttpClient Client = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false })
     { Timeout = TimeSpan.FromSeconds(12), MaxResponseContentBufferSize = 512 * 1024 };
     private Task<IReadOnlyList<PlatformStatus>>? pending;
     private IReadOnlyList<PlatformStatus> cached = [];
     private DateTimeOffset refreshed;
     private bool force;
-    public void Invalidate() { force = true; cached = []; }
+    public void Invalidate() { generation++; force = true; cached = []; }
 
     public IReadOnlyList<PlatformStatus> Scan()
     {
+        if (disposed) return [];
         if (pending is { IsCompleted: true })
         {
-            if (pending.IsCompletedSuccessfully) cached = pending.Result;
+            if (pending.IsCompletedSuccessfully && pendingGeneration == generation) cached = pending.Result;
             pending = null;
             refreshed = DateTimeOffset.Now;
         }
         if (pending is null && (force || DateTimeOffset.Now - refreshed >= TimeSpan.FromMinutes(3)))
-        { force = false; pending = Task.Run(Refresh); }
+        { force = false; pendingGeneration = generation; pending = Task.Run(Refresh); }
         return cached;
     }
 
@@ -35,7 +40,13 @@ public sealed class OfficialSources(AppPaths paths)
         var tasks = new List<Task<PlatformStatus>>();
         // Isolated diagnostic fixtures never touch the real user's Credential Manager.
         if (paths.Home == new AppPaths().Home)
-            try { tasks.AddRange(UsageKeyVault.List().Select(ProbeKey)); } catch (System.ComponentModel.Win32Exception) { }
+            try
+            {
+                var keys = UsageKeyVault.List();
+                foreach (var removed in cprClients.Keys.Except(keys).ToArray()) { cprClients[removed].Dispose(); cprClients.Remove(removed); }
+                tasks.AddRange(keys.Select(ProbeKey));
+            }
+            catch (System.ComponentModel.Win32Exception) { }
         foreach (var (name, title, arguments) in new[]
         {
             ("arkcli", "火山方舟 Coding Plan", new[] { "usage", "plan", "--product", "coding-plan", "--format", "json" }),
@@ -48,8 +59,20 @@ public sealed class OfficialSources(AppPaths paths)
         return await Task.WhenAll(tasks);
     }
 
-    private static async Task<PlatformStatus> ProbeKey(UsageKeyIdentity identity)
+    private async Task<PlatformStatus> ProbeKey(UsageKeyIdentity identity)
     {
+        if (identity.IsCodexProxyRs)
+        {
+            var cprTitle = identity.DisplayName + " · " + identity.Fingerprint;
+            try
+            {
+                if (!cprClients.TryGetValue(identity, out var client))
+                    cprClients[identity] = client = new(Path.Combine(paths.LocalDataRoot, "codex-proxy-rs-history"));
+                return await client.ProbeAsync(identity.Host, UsageKeyVault.Read(identity), cprTitle, lifetime.Token);
+            }
+            catch (System.ComponentModel.Win32Exception) { return CodexProxyRsParser.Failure(cprTitle, "无法读取 Windows 凭据，请重新登记密钥"); }
+            catch (ArgumentException) { return CodexProxyRsParser.Failure(cprTitle, "站点地址或密钥格式无效，请重新登记"); }
+        }
         if (identity.IsCustom)
         {
             var customTitle = identity.DisplayName + " · " + identity.Fingerprint;
@@ -88,6 +111,16 @@ public sealed class OfficialSources(AppPaths paths)
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or System.ComponentModel.Win32Exception)
         { return missing; }
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        lifetime.Cancel();
+        // Refresh owns the client dictionary until its last await completes.
+        var current = pending ?? Task.FromResult<IReadOnlyList<PlatformStatus>>([]);
+        _ = current.ContinueWith(_ => { foreach (var client in cprClients.Values) client.Dispose(); lifetime.Dispose(); }, TaskScheduler.Default);
     }
 
     private async Task<PlatformStatus> ProbeCli(string executable, string title, string[] arguments)

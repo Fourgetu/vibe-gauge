@@ -6,8 +6,10 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-public sealed record UsageKeyIdentity(string Host, string Fingerprint, string Label = "")
+public sealed record UsageKeyIdentity(string Host, string Fingerprint, string Label = "", string Backend = "")
 {
+    public bool IsCodexProxyRs => Backend == CodexProxyRsParser.Kind;
+    internal string StorageHost => IsCodexProxyRs ? "cpr|" + Host : Host;
     public bool IsCustom => Host.Contains("://", StringComparison.Ordinal);
     public string DisplayName => IsCustom ? (Label.Length > 0 ? Label : new Uri(Host).Authority) : Host;
 }
@@ -25,6 +27,8 @@ public static class UsageKeyVault
 
     public static UsageKeyIdentity SaveCustom(string endpoint, string key, string label) =>
         Store(Sub2ApiEndpoint.Normalize(endpoint), key, label.Trim());
+    public static UsageKeyIdentity SaveCodexProxyRs(string endpoint, string key, string label) =>
+        Store(CodexProxyRsEndpoint.Normalize(endpoint), key, label.Trim(), CodexProxyRsParser.Kind);
 
     public static void ValidateKey(string key)
     {
@@ -32,11 +36,12 @@ public static class UsageKeyVault
             throw new ArgumentException("API key 不能为空、包含空白字符或超过 2000 字符");
     }
 
-    private static UsageKeyIdentity Store(string host, string key, string label)
+    private static UsageKeyIdentity Store(string host, string key, string label, string backend = "")
     {
         ValidateKey(key);
         if (label.Length > 40 || label.Any(char.IsControl)) throw new ArgumentException("站点名称最多 40 字符，不能包含控制字符");
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("Bearer " + key)))[..8].ToLowerInvariant();
+        var identity = new UsageKeyIdentity(host, fingerprint, label, backend);
         var bytes = Encoding.Unicode.GetBytes(key);
         var memory = Marshal.AllocHGlobal(bytes.Length);
         try
@@ -45,7 +50,7 @@ public static class UsageKeyVault
             var credential = new Credential
             {
                 Type = 1,
-                TargetName = Prefix + host + "#" + fingerprint,
+                TargetName = Prefix + identity.StorageHost + "#" + fingerprint,
                 UserName = host,
                 Comment = label,
                 BlobSize = (uint)bytes.Length,
@@ -55,7 +60,7 @@ public static class UsageKeyVault
             if (!CredWrite(ref credential, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         finally { for (var i = 0; i < bytes.Length; i++) Marshal.WriteByte(memory, i, 0); Marshal.FreeHGlobal(memory); CryptographicOperations.ZeroMemory(bytes); }
-        return new(host, fingerprint, label);
+        return identity;
     }
 
     public static IReadOnlyList<UsageKeyIdentity> List()
@@ -78,7 +83,9 @@ public static class UsageKeyVault
                 {
                     try
                     {
-                        if (Sub2ApiEndpoint.Normalize(parts[0]) == parts[0])
+                        if (parts[0].StartsWith("cpr|", StringComparison.Ordinal) && CodexProxyRsEndpoint.Normalize(parts[0][4..]) == parts[0][4..])
+                            result.Add(new(parts[0][4..], parts[1], item.Comment is { Length: <= 40 } cprLabel && !cprLabel.Any(char.IsControl) ? cprLabel : "", CodexProxyRsParser.Kind));
+                        else if (Sub2ApiEndpoint.Normalize(parts[0]) == parts[0])
                             result.Add(new(parts[0], parts[1], item.Comment is { Length: <= 40 } label && !label.Any(char.IsControl) ? label : ""));
                     }
                     catch (ArgumentException) { }
@@ -91,7 +98,7 @@ public static class UsageKeyVault
 
     public static string Read(UsageKeyIdentity identity)
     {
-        if (!CredRead(Prefix + identity.Host + "#" + identity.Fingerprint, 1, 0, out var pointer))
+        if (!CredRead(Prefix + identity.StorageHost + "#" + identity.Fingerprint, 1, 0, out var pointer))
             throw new Win32Exception(Marshal.GetLastWin32Error());
         try
         {
@@ -102,7 +109,7 @@ public static class UsageKeyVault
     }
     public static void Remove(UsageKeyIdentity identity)
     {
-        if (!CredDelete(Prefix + identity.Host + "#" + identity.Fingerprint, 1, 0) && Marshal.GetLastWin32Error() != 1168)
+        if (!CredDelete(Prefix + identity.StorageHost + "#" + identity.Fingerprint, 1, 0) && Marshal.GetLastWin32Error() != 1168)
             throw new Win32Exception(Marshal.GetLastWin32Error());
     }
 

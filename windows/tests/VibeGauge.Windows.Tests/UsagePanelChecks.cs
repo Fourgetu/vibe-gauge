@@ -100,6 +100,12 @@ internal static class UsagePanelChecks
             host.SelectedIndex = 0;
             Assert.Empty(secret.Password);
             Assert.Equal(Visibility.Collapsed, Named<Button>(panel, "UsageTest").Visibility);
+            secret.Password = "fixture-only-not-a-real-key";
+            host.SelectedItem = "Codex Proxy RS";
+            Assert.Empty(secret.Password);
+            Assert.Equal(Visibility.Visible, Named<StackPanel>(panel, "UsageCustomFields").Visibility);
+            Assert.Equal(Visibility.Visible, Named<Button>(panel, "UsageTest").Visibility);
+            Assert.Contains(Logical<TextBlock>(panel), x => x.Text.Contains("无需管理员密码"));
         }
     }
     private static void Layout(FrameworkElement element)

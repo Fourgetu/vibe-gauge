@@ -62,6 +62,8 @@ public partial class MainWindow : Window
                 UpdateSelectedPanel();
             }
             if (e.PropertyName == nameof(viewModel.IsStatsSelected) && viewModel.IsStatsSelected ||
+                e.PropertyName == nameof(viewModel.IsApiSelected) && viewModel.IsApiSelected ||
+                e.PropertyName == nameof(viewModel.SelectedTokenUnit) ||
                 e.PropertyName == nameof(viewModel.IsSubscriptionSelected) && viewModel.IsSubscriptionSelected ||
                 e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
                 UpdateSelectedPanel();
@@ -85,7 +87,8 @@ public partial class MainWindow : Window
             if (provider is not null) ProviderDetailView.Update(provider, snapshot, viewModel.Paths, viewModel.SelectedTokenUnit);
             return;
         }
-        if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics, viewModel.SelectedTokenUnit);
+        if (viewModel.IsApiSelected) RemoteApiView.Update(snapshot.Platforms, viewModel.SelectedTokenUnit);
+        else if (viewModel.IsStatsSelected) StatisticsView.Update(snapshot.Statistics, viewModel.SelectedTokenUnit);
         else if (viewModel.IsSubscriptionSelected) PlansView.Update(viewModel.VisibleSessions(snapshot.Sessions), viewModel.SelectedTokenUnit, snapshot.Usage.Projects);
         else if (viewModel.IsNetworkSelected) NetworkView.Update(snapshot.Network, snapshot.Diagnostics);
     }

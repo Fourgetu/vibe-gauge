@@ -108,7 +108,9 @@ Windows 版使用原生 WPF 托盘界面，支持窗口拖动与缩放、深浅�
 
 **v1.6.9** 在 Codex API Key 模式显示今日与累计本地 Token，账号模式显示额度圆环；网络页底部新增 OpenAI 官方服务分组、可用率和近 90 天状态历史，可见时每 3 分钟查询。详见 [v1.6.9 更新说明](docs/releases/v1.6.9.md)。
 
-下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.9/VibeGauge-Setup-v1.6.9.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.9/VibeGauge-Windows-x64-v1.6.9.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.9)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
+**v1.6.10** 新增 [Codex Proxy RS 用量适配](docs/windows-codex-proxy-rs.md)：在 API 页底部登记部署地址和客户端 API Key，每 3 分钟同步额度与独立服务端用量。已同步累计从首次查询的近 30 天起保存；站点计费与本地估算分开显示。详见 [v1.6.10 更新说明](docs/releases/v1.6.10.md)。
+
+下载 [Windows 安装包](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Setup-v1.6.10.exe)或[免安装 ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Windows-x64-v1.6.10.zip)，SHA-256 校验文件见[正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.10)。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
 
 Windows 构建会生成免安装 ZIP 和当前用户安装包，均不需要预装 .NET 或 Python。需要安装请运行 `VibeGauge-Setup-*.exe`；`VibeGauge.exe` 是托盘主程序，不是安装器。便携使用时应保留同目录的 `VibeGauge.Proxy.exe`。
 

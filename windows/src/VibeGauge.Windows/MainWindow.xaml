@@ -101,6 +101,7 @@
                                 <WrapPanel Margin="0,5,0,0"><TextBlock Text="{Binding Provider}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Tokens, StringFormat= · 总 Token {0}}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Status, StringFormat= · {0}}" Tag="{Binding Tone}" Style="{StaticResource ToneTextStyle}" /></WrapPanel>
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <local:RemoteApiUsagePanel x:Name="RemoteApiView" Margin="0,14,0,0" />
                         <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,14,0,8" /><local:UsageKeysPanel />
                     </StackPanel>
                 </ScrollViewer>
