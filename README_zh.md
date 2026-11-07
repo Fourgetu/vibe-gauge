@@ -290,4 +290,6 @@ Windows 问题请到[本分支问题区](https://github.com/Fourgetu/vibe-gauge/
 
 感谢 [MaxHaiCom/VibeGauge](https://github.com/MaxHaiCom/VibeGauge) 提供原版设计与实现。Windows 移植、适配及扩展在此基础上持续维护，也欢迎通过[代码贡献](https://github.com/Fourgetu/vibe-gauge/pulls)改进。
 
+感谢 [LINUX DO](https://linux.do) 社区，以及参与 VibeGauge 交流讨论的佬友们，感谢大家的反馈、建议与支持。
+
 项目遵循 [MIT 开源许可](LICENSE)，保留上游版权与许可声明。
