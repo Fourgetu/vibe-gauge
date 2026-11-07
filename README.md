@@ -1,305 +1,293 @@
-# VibeGauge 🧠
+# VibeGauge · Windows 版
 
 <p align="center">
-  <img src="Resources/AppIcon_1024.png" width="100" height="100" alt="VibeGauge Icon" />
-</p>
-
-<h3 align="center">The Native macOS Menu Bar Dashboard for Vibe Coders</h3>
-
-<p align="center">
-  <b>Claude / Codex / Gemini / Grok quotas with sleep-aware forecasts · AI egress IP & DNS-leak checks · Token & Prompt Cache analytics · Orphaned MCP reaper.</b>
+  <img src="Resources/AppIcon_1024.png" width="100" height="100" alt="VibeGauge 应用图标" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/Fourgetu/vibe-gauge/releases"><img src="https://img.shields.io/github/v/release/Fourgetu/vibe-gauge?style=flat-square&color=blue" alt="Release"></a>
-  <img src="https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey?style=flat-square&logo=apple" alt="macOS 14+">
-  <img src="https://img.shields.io/badge/Language-Swift%20%2F%20SwiftUI-orange?style=flat-square&logo=swift" alt="Swift Native">
-  <img src="https://img.shields.io/badge/Dependencies-Zero%20(Pure%20Native)-success?style=flat-square" alt="Zero Dependencies">
-  <img src="https://img.shields.io/badge/Privacy-100%25%20Local-blueviolet?style=flat-square" alt="100% Local">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
+  <b>在 Windows 托盘中查看 AI 额度、用量、费用、网络出口和系统状态。</b>
 </p>
 
 <p align="center">
-  <b>🇺🇸 English</b> •
-  <a href="README_zh.md">🇨🇳 简体中文</a>
+  <a href="https://github.com/Fourgetu/vibe-gauge/releases/latest"><img src="https://img.shields.io/github/v/release/Fourgetu/vibe-gauge?label=正式版&amp;style=flat-square" alt="最新正式版" /></a>
+  <img src="https://img.shields.io/badge/系统-Windows%2011%20x64-blue?style=flat-square" alt="支持 Windows 11 x64" />
+  <img src="https://img.shields.io/badge/界面-原生%20WPF-blueviolet?style=flat-square" alt="原生 WPF 界面" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/许可-MIT-green?style=flat-square" alt="MIT 开源许可" /></a>
 </p>
 
----
+**本仓库是 [MaxHaiCom/VibeGauge](https://github.com/MaxHaiCom/VibeGauge) 的 Windows 移植与功能扩展分支，由 Fourgetu 维护。** 原版面向 macOS，本分支以 Windows 11 x64 为主要使用平台，采用 C#、.NET 10 和原生 WPF 实现托盘界面。
 
-<table>
-  <tr>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-plans.png" alt="Quotas at a glance" /><br /><sub>Quotas at a glance</sub></td>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-forecast.png" alt="Sleep-aware weekly forecast" /><br /><sub>Sleep-aware weekly forecast</sub></td>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-network.png" alt="AI egress IP &amp; leak checks" /><br /><sub>AI egress IP &amp; leak checks</sub></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-stats.png" alt="Month calendar, hours &amp; cost" /><br /><sub>Month calendar, hours &amp; cost</sub></td>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-mac.png" alt="Orphan reaper, disk &amp; settings" /><br /><sub>Orphan reaper, disk &amp; settings</sub></td>
-    <td align="center" valign="top" width="33%"><img src="assets/screenshots/en-api.png" alt="API keys &amp; official quota sources" /><br /><sub>API keys &amp; official quota sources</sub></td>
-  </tr>
-</table>
+这里集中介绍 Windows 版已支持的功能、接入方法及与原版的差异。仓库保留上游 macOS 源码，发布页也提供 macOS 通用包；Windows 新增功能以本文说明为准，不代表已同步到 macOS。
 
-<p align="center"><sub>Screenshots use made-up demo data (<code>tools/screenshots.sh</code>).</sub></p>
+## 下载与安装
 
----
+当前正式版：**v1.6.10**。
 
-## 💡 Why VibeGauge?
+| 下载方式 | 文件与用途 |
+| --- | --- |
+| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Setup-v1.6.10.exe) | 当前用户安装包，适合日常使用 |
+| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Windows-x64-v1.6.10.zip) | 解压后运行，适合便携使用 |
+| [正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/latest) | 更新说明、全部附件及 SHA-256 校验文件 |
 
-When using autonomous coding agents like **Claude Code**, **OpenAI Codex**, **Google Antigravity (agy)**, or **Grok CLI**, developers encounter three recurring frustrations:
+安装版和免安装版均自带运行时，**使用时无需另装 .NET 或 Python**。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
 
-1. **🧟‍♂️ Memory Leaks from Orphaned MCP Servers**:
-   Every time an agent spins up or aborts, headless `node` or `python` Model Context Protocol (MCP) server processes are left behind (`PPID == 1`). Over days of coding, dozens or hundreds of these zombie processes quietly hoard **5 GB to 10 GB of RAM**, triggering heavy swap and system thermal throttling.
-2. **⏳ Quota Blind Spots & "Reset Anxiety"**:
-   Each vendor uses a different quota model — Claude's dynamic 5-hour rolling window and 7-day limits, Codex's weekly quotas, Gemini's credit pools. Wondering if your quota has reset or when you can code again usually requires hitting rate limits in the terminal or opening vendor dashboards.
-3. **📊 Token Costs & Prompt Cache Black Hole**:
-   How many tokens did you burn today? Is Prompt Caching actually hitting 95%+ to save your budget? How much thinking/reasoning token overhead was generated?
+1. 安装版运行 `VibeGauge-Setup-*.exe`；免安装版解压后运行 `VibeGauge.exe`。
+2. 程序启动后驻留系统托盘，点击图标打开面板。
+3. 保留同目录的 `VibeGauge.Proxy.exe`，它用于可选的本地 API 记账代理。
+4. 升级前退出旧版及其代理，保留 `%LOCALAPPDATA%\VibeGauge` 中的配置和历史账本。
 
-**VibeGauge** is built entirely with native **Swift + AppKit + SwiftUI**. It has **zero third-party dependencies and no prompt or usage-log uploads**. Usage analysis stays local; the Network tab makes only the trace requests documented below.
+`VibeGauge.exe` 是主程序，不是安装器。安装版和免安装版正常运行时沿用同一用户的数据目录。
 
----
+## 可以做什么
 
-## ✨ Features
+- **查额度**：订阅档位、已用比例、重置倒计时、额度预测和可选提醒。
+- **看消耗**：今日与累计 Token、缓存命中率、模型构成、各智能体及项目用量。
+- **算费用**：导入 OpenRouter 公开价格，或使用自己的价格表估算 API 等价成本。
+- **查网络**：分别查看 AI 目标出口、代理连接链、本机网络状态和 OpenAI 官方服务状态。
+- **管系统**：查看内存、进程与磁盘占用，按保护规则清理孤儿 MCP 进程和部分缓存。
+- **接站点**：查询官方密钥额度、自定义 sub2api 额度，以及 Codex Proxy RS 服务端用量。
 
-- 🧹 **One-Click Orphaned MCP Reaper**:
-  - Automatically identifies headless MCP servers (`PPID == 1`, no listening ports, not on system whitelist, matches MCP signatures).
-  - Multi-tier safety guards prevent accidental kills of legitimate dev tasks.
-  - One-click clearing of `~/.npm/_npx` cache bloat.
-  - Optional silent background sweep every 30 minutes.
-- ⏱️ **Unified AI Quota & Reset Timers**:
-  - **Claude**: Captures subscription tier (Max 5x / Max 20x / Pro / Team), 5-hour percentage, 7-day quota, and exact countdown to reset.
-  - **Codex**: Detects primary `codex` bucket usage, identifies `usage_limit_exceeded` exact unlock timestamps, and supports optional passwordless SSH synchronization from remote dev machines.
-  - **Gemini / Antigravity**: Tracks official and 3rd-party quota pools with respective reset dates.
-  - **Grok**: Reads weekly credit usage and billing cycle reset boundaries.
-  - **Kimi Code**: Official 5-hour / weekly / monthly quota from the local `kimi web` service.
-  - **Coding Plans, official figures**: Volcengine Ark and Alibaba Model Studio Coding Plans read through the providers' own CLIs (one click installs and signs in, in Terminal); GLM, Z.ai, MiniMax, DeepSeek, OpenRouter and Moonshot keys you add to the Keychain are checked against each provider's own usage endpoint. Works without the proxy; otherwise plans are estimated from logged requests and labeled as estimates.
-  - **Sessions waiting on you** (optional, Claude Code hooks): which sessions wait for approval or input, and for how long; a notification after a minute. Observe-only: it records event types and times, never answers a prompt.
-  - **Session context**: how full each active Claude / Codex session's context window is, and today's compactions.
-  - **Local Model Probing**: Ollama, LM Studio (including headless llmster), llama.cpp (`llama-server`), and MLX (`mlx_lm.server`): online with which models loaded, online but idle, or process running but not answering. Read-only local requests; never triggers a model load.
-  - **Forecast that knows you sleep**: Weekly quotas are projected from *your* last 7 days of usage — which hours you actually code (from local CLI logs) and how much you used last cycle — so a busy evening isn't extrapolated through the night. 5-hour windows use the recent pace.
-- 📈 **Today's Token Analytics & Prompt Cache ROI**:
-  - Aggregated daily stats: hundreds of millions in context tokens, output tokens, and thinking/reasoning tokens.
-  - Real-time Prompt Cache hit rate calculations (e.g. 97.4% hit rate).
-  - Live inspector capturing the latest 3 interaction rounds (model name, latency, cache hit %, tokens).
-  - **History**: a month calendar of daily intensity (tap for the last 7 days by hour), totals and API-equivalent cost per tool, and today's model mix.
-- 🔌 **Built-in Transparent API Key Proxy (Optional)**:
-  - For direct API calls (e.g. routing Claude Code or scripts to GLM, DeepSeek, Kimi, MiniMax, OpenRouter).
-  - Runs a local proxy daemon on `127.0.0.1:18790` with zero configuration needed.
-  - Fetches plan tiers & remaining balances automatically while keeping keys strictly in memory.
-- 🖥️ **macOS Native Craftsmanship**:
-  - Pure Swift native app — starts instantly and sips minimal system resources.
-  - Menu bar icon shows live available memory percentage.
-  - Adaptive panel height with **two-finger trackpad swipe** to switch tabs smoothly.
+## 承接原版的核心功能
 
----
+以下能力延续原版的设计，并在 Windows 上按对应的数据源和系统接口实现。
 
-## 🚀 Quick Start
+### 订阅额度与会话状态
 
-### Windows 11 (x64)
+| 对象 | Windows 版提供的能力 |
+| --- | --- |
+| Claude Code | 订阅档位、状态栏桥接回报的 5 小时与周额度、重置时间、额度新鲜度与预测 |
+| Codex | 当前登录模式与套餐识别；账号模式下的官方额度查询和本地额度回报；按实际窗口显示圆环与重置时间 |
+| Gemini / Antigravity | 通过状态栏桥接和本地额度缓存读取官方池、第三方池及重置信息 |
+| Kimi Code | 本机 `kimi web` 服务可用时读取官方额度 |
+| 火山方舟、阿里云百炼 | 通过已安装并登录的官方命令行工具读取 Coding Plan 额度，提供安装与登录指引 |
+| GLM、Z.ai、MiniMax、DeepSeek、OpenRouter、Moonshot | 登记 API 密钥后查询各自支持的额度、限额或余额接口 |
+| 自定义 Coding Plan | 使用 `plans.json` 按本地观察到的请求估算共享池或模型池，支持权重与多种重置方式 |
+| Claude / Codex 会话 | 展示可用的上下文占用、压缩次数和会话明细 |
+| Claude 待处理会话 | 可选安装观察钩子，标记等待批准或输入的会话并提醒，不替用户批准工具调用 |
 
-The native WPF tray app includes movable/resizable acrylic panels, persistent light/dark themes, slim scrollbars, quota confidence and forecasts, Claude/Codex session context, opt-in Claude observation hooks, date-linked calendar/hourly usage statistics, PI-Desktop consumption monitoring, native network metrics, local model monitoring, and a standalone accounting proxy. Official and custom [sub2api quota keys](docs/windows-sub2api.md) are stored in Windows Credential Manager. Version 1.5.0 adds visible total-token counts, a compact 420-pixel layout, smooth top-edge auto-hide/reveal, and lower-allocation background monitoring without reducing the five-second refresh rate. Version 1.5.2 extends retained usage history to Claude Code, Codex, and API logs, recognizes archived Codex sessions, and displays the running version on the System page. The PI-Desktop retention fix from v1.5.1 remains included. See [v1.5.2 release notes](docs/releases/v1.5.2.md), [usage-history behavior](docs/windows-usage-retention.md), and [port coverage and remaining platform differences](docs/windows-upstream-1.3.1.md).
+额度预测结合近期采样、历史使用节奏和周期信息；过期、估算或不适合预测的窗口不会强行给出结论。查不到、读取失败和等待刷新会明确展示，不把缺失额度当成已知的零用量。
 
-Version **1.6.0** adds [ZCode monitoring](docs/windows-zcode.md), places Gemini and ZCode side by side, and shortens the PI-Desktop/Ollama and custom sub2api rows with complete hover details. See [v1.6.0 release notes](docs/releases/v1.6.0.md).
+Claude / Gemini 桥接需要主动启用；修改配置前会备份，可在设置中恢复。官方工具需先完成自身登录，不会因为启动 VibeGauge 就自动安装或登录供应商工具。
 
-Version **1.6.3** fixes stale Codex subscription labels after account switching: current authentication takes precedence over old Team/Pro session reports, API-key mode does not inherit subscription quotas, and quota trends/notifications stay account-scoped. The details page distinguishes quota-report age from the five-second local scan interval. All v1.6.2 monitoring, detail, localization and retained-history features remain. See [v1.6.3 release notes](docs/releases/v1.6.3.md), [account/refresh behavior](docs/windows-account-quota.md) and [configuration/migration notes](docs/windows-parity-implementation.md).
+### 用量统计与本地记账
 
-Version **1.6.5** adds four statistics summary cards, token distribution, independent per-agent usage, and a model list showing the top two entries with an expand control. OpenRouter public prices can be imported and updated without a key; pricing can strip the `-basispoints` suffix while retaining original model labels. Redesigned settings support LAN OpenClash/Mihomo controllers and encrypted secrets. Quota sources, network diagnostics, notifications, and API ledger migration are corrected. Monitoring retains its five-second interval with lower allocation pressure; the measurements do not establish a sustained reduction from 150 MB to 100 MB in real use. See [v1.6.5 release notes](docs/releases/v1.6.5.md).
+- 展示输入、输出、缓存读取、缓存写入、思考 Token 和最近调用。
+- 支持今日、近 7 天、近 30 天及全部已记录历史，提供月历热力图和小时分布。
+- 按来源、模型和日期汇总，区分已知用量、缺失用量和估算费用。
+- 增量读取本地日志，保留已观察到的历史，并对复制、归档和重复记录去重。
+- 可选启动本地 API 记账代理，兼容 OpenAI Chat / Responses、Anthropic、Gemini 等受支持的响应格式，解析普通及流式响应中的用量。
+- API 页展示请求数、错误、延迟、限流信息和最近调用；代理统计与客户端日志统计独立展示。
 
-Version **1.6.6** simplifies network cards, adds conservative DNS/IPv6 health checks and daily usage by project while retaining agent totals, and separates visible one-second process/rate updates from five-second log scans. Official/custom quota sources refresh every three minutes; Codex quotas retain their one-minute cadence. See [v1.6.6 release notes](docs/releases/v1.6.6.md) for migration and measurement details.
+缓存和思考通常是输入或输出的子项，按各来源的字段含义归一化，避免重复相加。API 等价成本是估算值，不等同于供应商实际账单。
 
-Version **1.6.7** refines light/dark acrylic layers, reduces stacked white surfaces, reveals more of the dark backdrop, and unifies navigation and language selection with gray backgrounds and white labels. See [v1.6.7 release notes](docs/releases/v1.6.7.md).
+### 本地模型、系统状态与维护
 
-Version **1.6.8** adds a System page glass-transparency control with independent light/dark persistence and keeps Desktop Acrylic visible while the window is inactive, covered by another app, or reopened. See [v1.6.8 release notes](docs/releases/v1.6.8.md).
+- 监测 Ollama、LM Studio（含 llmster）和 llama.cpp，区分接口在线、已加载模型、空载或进程存在但接口未响应等状态。
+- 本地模型探测只查询状态，不触发模型加载。
+- 查看内存、进程、AI 数据目录占用及可清理项目。
+- 提供孤儿 MCP 进程清理，结合归属、启动时间、活动子进程、监听和系统保护信息复核；保护信息不足时跳过。
+- 支持可选的自动孤儿进程清理，以及待处理、额度、内存、磁盘、网络出口变化等提醒。
+- 日志与部分缓存清理先预览并确认；涉及用量来源时先检查历史账本是否可靠保存。
 
-Version **1.6.9** shows today's and cumulative local Codex tokens in API-key mode and quota rings in account mode. The Network page adds native OpenAI service groups, official uptime, and 90-day status history, refreshed every three minutes while visible. See [v1.6.9 release notes](docs/releases/v1.6.9.md).
+### 网络诊断
 
-Version **1.6.10** adds [Codex Proxy RS usage monitoring](docs/windows-codex-proxy-rs.md). Register a deployment address and client API key at the bottom of the API page to view quotas and separate server usage every three minutes. Synced totals start with the last 30 days; server-reported costs remain separate from local estimates. See [v1.6.10 release notes](docs/releases/v1.6.10.md).
+- Claude、ChatGPT / Codex、OpenAI API 分别执行出口探测，Cloudflare 结果作为对照。
+- Gemini 通过 Clash / Mihomo 控制器的活动连接表展示代理链路。
+- 比较有效出口，记录出口 IP 或地区变化，支持可选通知。
+- 展示活动网卡、IPv4 / IPv6、网关、DNS、流量速率，以及可获得的 Wi-Fi / Tailscale 信息。
+- 提供 DNS、Fake-IP 与 IPv6 体检，区分配置线索、可达性、失败和未知状态。
 
-Download the [Windows installer](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Setup-v1.6.10.exe) or [portable ZIP](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.10/VibeGauge-Windows-x64-v1.6.10.zip). Checksums are available on the [release page](https://github.com/Fourgetu/vibe-gauge/releases/tag/v1.6.10). Windows binaries are unsigned and may trigger SmartScreen.
+出口探测反映诊断请求的实际路径。客户端独立代理、TUN 或软路由策略可能使其他请求走不同路径；Gemini 的节点名称不等同于它的公网出口 IP，DNS / IPv6 检查也不承诺证明所有请求都没有泄漏。
 
-The Windows build produces a portable ZIP and a per-user installer. Both are self-contained and require neither .NET nor Python at runtime. Use `VibeGauge-Setup-*.exe` to install; `VibeGauge.exe` is the tray application, not the installer. Keep its companion `VibeGauge.Proxy.exe` beside it when using the portable build.
+## Windows 分支新增与增强
 
-Build locally with the .NET 10 SDK:
+### 原生托盘与毛玻璃界面
 
-```powershell
-.\windows\build.ps1
-```
+- 可拖动、缩放和固定窗口，保存窗口位置，支持紧凑布局与细滚动条。
+- 贴顶自动收起，悬停展开。
+- 深浅两套毛玻璃主题，优化背景层次、灰底白字选中态和文字对比。
+- 系统页提供透明度滑块，深色和浅色分别保存；窗口失去焦点后继续保持毛玻璃。
+- 支持开机启动、客户端显示开关和语言选择。隐藏某个客户端只改变展示，不停止采集或删除其历史。
 
-### Method 1: Download Pre-built Binary (Recommended)
+### 更多 Windows 桌面客户端
 
-> Universal app — runs on **Apple Silicon and Intel** Macs with **macOS 14+**. UI in English / 简体中文 — follows your system, switch anytime at the panel's bottom-right.
+| 客户端 | 接入内容 |
+| --- | --- |
+| PI-Desktop | 本地会话用量、今日和累计消耗、运行状态、模型及历史分布 |
+| ZCode | 只读统计数据库中的有效请求用量，展示今日、累计、缓存和思考明细 |
+| WorkBuddy / WorkBuddy AI | 本地会话日志用量、去重后的调用与历史统计 |
+| DSH Desktop | 支持普通及受支持的压缩会话日志，按有效结算记录统计用量 |
 
-1. Download the latest `VibeGauge.zip` from [GitHub Releases](https://github.com/Fourgetu/vibe-gauge/releases).
-2. Unzip and drag `VibeGauge.app` into your `/Applications` folder.
-3. Launch it. The icon will appear in your top menu bar.
-4. Using Claude Code or agy? Click **Connect quota** on its card once — the quota appears after your next message.
+这些客户端会纳入整体用量、模型和历史统计，但不会凭 Token 日志虚构订阅额度或余额。请求次数也不直接等同于会话数。
 
-> **Tip**: On first launch, if prompted by macOS Gatekeeper, click "Open Anyway" in `System Settings → Privacy & Security`. If you use menu-bar management utilities like Bartender or Ice, make sure VibeGauge isn't hidden in a collapsed drawer.
+### 补齐统计页与项目视图
 
----
+- 顶部四张卡片：**总 Token、API 等价成本、活跃天数、缓存命中率**。
+- 输入、输出和缓存分布条，展示详细占比；思考作为输出明细。
+- 模型构成默认显示前两个，可展开完整版；比例始终以全部模型为分母。
+- 保留独立的每智能体用量，查看各工具的调用、Token、缓存、思考和估算费用。
+- Claude / Codex 今日用量可按工作目录汇总，默认显示前三个项目，可展开全部；项目主数值为包含缓存的上下文 Token。
+- 支持中文“万／亿”和国际“K／M／B”单位切换，日期选择与统计联动。
 
-### Method 2: Build from Source in 3 Seconds (Zero Dependencies)
+### OpenRouter 价格与模型别名
 
-No heavy Xcode installation required — only macOS standard command line tools (`swiftc`):
+在 **系统 → 详细设置 → API 成本与套餐** 点击“使用 / 更新 OpenRouter 价格”，无需密钥即可导入公开价格，更新前备份原表。
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/MaxHaiCom/VibeGauge.git
-cd VibeGauge
+计价时会去掉模型名末尾的 `-basispoints`，同时保留界面中的原始模型名。未匹配的型号显示未定价；公开基础文本价格不涵盖所有阶梯价、工具费用或历史价格变化。也可继续使用自定义 `prices.json`。
 
-# 2. Build and bundle
-./build.sh
+### 本机代理与软路由
 
-# 3. Launch
-open VibeGauge.app
-```
+支持在设置中直接填写 Clash / Mihomo 控制器地址和密钥，并保存、删除或测试连接。
 
-#### Headless & CLI Flags
+- 可连接本机控制器，也可明确启用局域网 OpenClash / Mihomo 软路由。
+- 密钥按控制器地址分别加密保存。
+- 软路由连接表可按来源设备 IP 筛选；留空时明确显示为全设备连接。
+- 网络页默认简约展示，完整连接、网卡与诊断信息可展开。
+- 只读取状态与连接链，不修改代理节点、模式或分流规则。
 
-```bash
-# Offline deterministic tests: temp dirs + built-in log fixtures, no real logs, no network
-./VibeGauge.app/Contents/MacOS/VibeGauge --selftest
+### Codex 登录模式与官方状态
 
-# Local diagnostic snapshot for bug reports (IPs and command lines masked; no UI launched)
-./VibeGauge.app/Contents/MacOS/VibeGauge --diagnose
+- **API 密钥模式**：概览显示今日与累计本地 Token 消耗。
+- **账号模式**：显示订阅额度圆环，切换账号时隔离额度及提醒状态。
+- 当前登录信息优先于旧会话套餐记录，避免把历史账号额度展示给新账号。
+- 网络页底部展示 OpenAI 官方运行状态，包括服务分组、组件、可用率及近 90 天状态历史。
+- 官方状态查询失败时保留并标注上次成功结果；全局服务状态与本机网络连通性分开展示。
 
-# Install / Uninstall the background API accounting proxy daemon
-./VibeGauge.app/Contents/MacOS/VibeGauge --install-proxy
-./VibeGauge.app/Contents/MacOS/VibeGauge --uninstall-proxy
-```
+Codex 本地累计包含已记录的账号与 API 模式历史，不代表当前 Key 的服务端账单。
 
----
+### Codex Proxy RS 服务端统计
 
-## 🔍 Data Sources & Freshness
+**v1.6.10 新增。** 在 API 页底部选择“Codex Proxy RS”，填写部署地址与客户端 API Key，测试连接后保存。
 
-All subscription tiers, quotas, and token metrics are read strictly from local session logs or vendor cache files:
+- 每 3 分钟读取当前 Key 的日／周额度与服务端用量。
+- 展示今日、近 30 天、已同步累计、输入输出、缓存、思考、趋势及近 30 天最近 20 次请求。
+- 服务端统计覆盖该 Key 的多设备调用，独立于本地日志和代理统计，避免重复计算。
+- 金额按站点回报显示为“站点计费”，不替换为 OpenRouter 估算。
+- 密钥存入 Windows 凭据管理器，会话过期自动重新登录，失败时保留并标注旧数据。
 
-| Provider | Plan Detection | Quotas & Reset Timestamps | Update Frequency |
-|:---|:---|:---|:---|
-| **Claude** | `~/.claude.json`<br>(e.g. `max_5x`, `max_20x`, `pro`) | Official 5h / 7d usage Claude Code hands to its status line<br>(**one click**: “Connect quota” on the card) | Every Claude Code status-line refresh |
-| **Codex** | `~/.codex/auth.json`<br>(JWT `chatgpt_plan_type`) | Session jsonl `rate_limits`<br>(Extracts exact unlock time from `task_complete` errors) | Updates only when requests are actively sent |
-| **Gemini** | Local auth token verification | Official quota agy hands to its status line, Gemini & 3rd-party pools<br>(**one click**: “Connect quota” on the card) | Every agy status-line refresh |
-| **Grok** | `~/.grok/settings_cache.json` | `~/.grok/logs/unified.jsonl`<br>(Latest billing credits config & period end) | Periodically flushed by Grok CLI |
-| **Kimi Code** | `~/.kimi-code` | Official local service `kimi web`: `GET /api/v1/oauth/usage`<br>(5h / weekly / monthly, extra-usage balance) | Only while `kimi web` is running |
-| **Volcengine Ark / Alibaba Model Studio Coding Plan** | Official CLI sign-in (`arkcli`, `bl`) | `arkcli usage plan` / `bl usage coding-plan`<br>(5h / weekly / monthly; **one click** “Install & sign in” on the Plans tab) | Every 5 minutes |
-| **GLM / Z.ai / MiniMax / DeepSeek / OpenRouter / Moonshot** | Key you add (Keychain) or a key seen by the proxy | Each provider's own usage / balance endpoint | Every 5 minutes |
-| **Ollama / LM Studio / llama.cpp / MLX** | Process match + read-only local endpoints (`/api/ps`, `/api/v1/models`, `/v1/models`) | No cloud quota (online state and loaded models) | Cached 10 s |
+**已同步累计不等于完整历史账单。** 首次同步近 30 天，之后保留已同步记录；更早历史及超出查询窗口的离线缺口不会自动补齐。适配依据 Codex Proxy RS v3.35.1 接口，不同部署版本可能需要兼容调整。详见 [接入与统计范围](docs/windows-codex-proxy-rs.md)。
 
-> 🔗 **How “Connect quota” works**: Claude Code and agy pass the official quota to their status-line command on every refresh. Connecting swaps in VibeGauge's small bridge script (`~/.config/vibegauge/vibegauge-statusline.py`, stdlib Python), which saves a copy and then hands the exact same input to your previous status line — what you see doesn't change. Your `settings.json` is backed up first (`settings.json.vibegauge-backup`); turn it off under **Mac → Settings** to restore it. No credentials are read and no requests are made.
+### 历史留存与刷新开销
 
-> 📌 *Note*: Footnotes such as "Recorded 1h ago" represent the **timestamp when the vendor CLI last refreshed its local log**, not a lag in VibeGauge. VibeGauge's incremental delta-scanner runs in ~100ms when the panel is open.
+- 保留已采集用量，删除原客户端会话后仍可查看已记录的累计。
+- 识别 Codex 归档日志，支持适用来源的历史压缩、旧账本迁移及重复记录校正。
+- 复用未变化的解析结果，隐藏窗口时减少详情重建。
+- 进程状态和网络速率采用独立轻量刷新，不每秒重扫所有日志或请求额度。
 
----
+尚未被 VibeGauge 观察到就已删除的数据无法恢复。资源占用取决于日志规模和运行环境，不承诺固定在 100 MB。
 
-## Network and Historical Statistics
+## 首次配置
 
-The panel has five tabs: **Subscriptions / API / Statistics / Network / System**.
+| 想做什么 | 操作入口 |
+| --- | --- |
+| 读取本地用量 | 正常使用受支持的客户端，VibeGauge 自动扫描已有本地来源 |
+| 连接 Claude / Gemini 额度 | 在系统设置中启用对应状态栏桥接，按提示重新启动相关客户端会话 |
+| 查询官方或 sub2api 额度 | API 页底部“额度监控 · API 密钥”，选择来源、填写密钥并保存；自定义站点还需填写地址 |
+| 查询 Codex Proxy RS | 同一入口选择“Codex Proxy RS”，填写部署地址与客户端密钥，先测试再保存 |
+| 接入本机或软路由控制器 | 系统 → 详细设置 → 网络诊断，填写地址和密钥；软路由需启用局域网选项 |
+| 启用费用估算 | 系统 → 详细设置 → API 成本与套餐，导入公开价格或编辑自己的价格表 |
+| 使用 API 记账代理 | 在 API 页启动代理，并把客户端请求地址改为对应的本机代理地址 |
+| 隐藏不使用的客户端 | 系统 → 订阅页显示，关闭对应展示项 |
+| 调节毛玻璃 | 系统页调整透明度，深浅主题分别设置 |
 
-- **Network** probes only each AI domain's `/cdn-cgi/trace` endpoint (Anthropic, ChatGPT, OpenAI API and Grok), once per minute with fresh connections. Gemini has no trace endpoint; its route is shown only when the local clash connection table contains an active connection. Failures remain visible as unavailable.
-- The local clash API is read every 10 seconds (`clashAPI`, default `http://127.0.0.1:9090`; optional `clashSecret`). Only loopback addresses are accepted. Local interface, route and DNS information refresh every 30 seconds; byte counters are sampled at least two seconds apart. No network configuration is changed.
-- Every 10 minutes, an IPv6-only request to Cloudflare's trace endpoint checks IPv6 reachability, and local resolver addresses are checked for possible DNS leakage. These are indicators, not proof that all traffic follows the same route. Exit-change notifications are enabled by default, with a 10-minute cooldown per AI.
-- **Statistics** reads local Claude, Codex and API proxy logs in the background, then updates incrementally every five minutes. Claude requests are deduplicated across files; Codex uses per-request usage when available and cumulative differences otherwise. Events are grouped by their timestamps in the local timezone. The daily-intensity card shows a Monday-first month calendar (‹ › to page back); tap it for the last 7 days × 24 hours. Hourly detail exists only for the last 8 days, because older records are kept as daily totals.
-- History is stored in `~/.config/vibegauge/usage-daily.json`. Removing old logs retains their already-cached history; rewriting a file replaces its contribution. Session counts are distinct log files. CLI and API proxy sources can include the same call and are not deduplicated against each other.
-- API-equivalent cost uses only `~/.config/vibegauge/prices.json`. Unpriced models are explicitly excluded; there are no built-in production prices. Token totals include cached input and output; reasoning tokens are part of output.
+密钥额度查询和本地记账代理是两个入口：只查额度无需启用代理；本地代理只统计实际经过它的请求。
 
-No prompts or usage logs are uploaded by these features. Network probes necessarily make the outbound requests described above. The optional existing API proxy and remote Codex synchronization retain their own behavior. `--selftest` runs only offline fixtures. `--diagnose` skips remote SSH and prints masked network and real historical summaries.
+默认代理端口为 `18790`。例如，在支持读取此环境变量的客户端启动前，于 PowerShell 设置：
 
----
+~~~powershell
+$env:OPENAI_BASE_URL = "http://127.0.0.1:18790/https://api.deepseek.com/v1"
+~~~
 
-## 🛠️ API Key Accounting Proxy (Optional)
+若在设置里改过代理端口，需要同步修改客户端地址。停止使用代理后，应恢复客户端原始请求地址。
 
-When routing terminal tools or scripts directly to AI provider endpoints, route requests through the local proxy to capture token analytics and credit balances:
+## 数据来源与刷新频率
 
-1. **Install Proxy Daemon**:
-   Click "Install API Proxy" in the API tab, or run:
-   ```bash
-   ./VibeGauge.app/Contents/MacOS/VibeGauge --install-proxy
-   ```
-   The proxy listens on `127.0.0.1:18790` (change it with `proxyPort`, see Configuration). It reaches upstreams through your macOS system proxy if one is set (or `HTTPS_PROXY`); to pin a route, write `{"upstream": "http://127.0.0.1:7890"}` or `{"upstream": "direct"}` to `~/.config/vibegauge/proxy.json`. Local models on `localhost` always go direct. Details: [docs/PROTOCOL.md](docs/PROTOCOL.md#reaching-the-upstream-proxyjson-stable).
+| 内容 | 来源或刷新条件 |
+| --- | --- |
+| 本地用量、会话明细、完整系统扫描 | 约每 5 秒，读取日志、受支持数据库及系统信息 |
+| 客户端进程状态 | 订阅页可见时约每 1 秒轻量更新 |
+| 网络流量速率 | 网络页可见时约每 1 秒轻量更新 |
+| Codex 官方额度 | 约每 60 秒；依赖可用的官方客户端和当前账号登录状态 |
+| 登记的官方、自定义站点及 Codex Proxy RS | 约每 3 分钟 |
+| OpenAI 官方服务状态 | 网络页可见时约每 3 分钟，也可手动刷新 |
+| 完整网络诊断 | 启用自动诊断后约每 5 分钟，也可手动刷新 |
+| Claude / Gemini 桥接额度 | 由对应客户端状态栏更新后，再由 VibeGauge 读取 |
 
-2. **Zero-Config Routing**:
-   Simply prefix your existing endpoint URL:
-   ```bash
-   # GLM (Zhipu AI)
-   export ANTHROPIC_BASE_URL=http://127.0.0.1:18790/https://open.bigmodel.cn/api/anthropic
-   
-   # DeepSeek
-   export OPENAI_BASE_URL=http://127.0.0.1:18790/https://api.deepseek.com/v1
-   ```
-   *(One-liner to prepend the proxy to all ANTHROPIC_BASE_URL declarations in `~/.zshrc`:)*
-   ```bash
-   perl -pi.bak -e 's#(ANTHROPIC_BASE_URL=["\x27]?)(?!http://127\.0\.0\.1:18790/)(https?://)#$1http://127.0.0.1:18790/$2#' ~/.zshrc
-   ```
+界面刷新频率不代表供应商生成新数据的频率。卡片上的“记录于”是数据来源时间；没有新回报时会标注新鲜度。
 
-3. **Supported Providers**:
-   - **GLM Coding Plan**: Automatic tier & 5h/weekly quota tracking
-   - **OpenRouter**: Real-time remaining balance & credits calculation
-   - **DeepSeek**: Balance endpoint integration
-   - **Kimi / MiniMax / Volcano Ark / MiMo**: Streaming token usage accounting
+## 原版与 Windows 的平台差异
 
----
+原版的主要方向包括多平台额度、会话上下文、用量与费用分析、网络诊断、本地模型和 MCP 维护。本分支承接这些能力，并增加前述 Windows 功能；以下项目仍按平台区分。
 
-## ⚙️ Configuration (Optional)
+| 原版能力或实现 | Windows 分支情况 |
+| --- | --- |
+| Swift / AppKit / SwiftUI 菜单栏、触控板手势 | 使用原生 WPF 托盘和 Windows 窗口交互，不保证手势与视觉完全一致 |
+| Grok 额度与原版卡片 | Windows 已改为 PI-Desktop 等桌面客户端视图，不声明支持原版 Grok 额度卡片 |
+| Codex 可选 SSH 远程额度同步 | 尚未移植；Codex Proxy RS 多设备统计是另一种接入方式 |
+| MLX 本地模型探测 | 尚未移植；Windows 当前覆盖 Ollama、LM Studio 和 llama.cpp |
+| macOS 钥匙串、LaunchAgent 与系统命令 | Windows 使用凭据管理器、当前用户加密存储和应用管理的代理子进程 |
+| 原版内存占用数据 | 不直接套用到 Windows，实际占用受平台及日志规模影响 |
 
-Everything works with zero config. These files and settings are only needed for the extras.
+部分功能依赖客户端版本、接口字段、已登录账号或可访问的控制器。自动化测试覆盖已支持格式及异常场景，不代表所有供应商账号和网络环境均已完成实机验证。
 
-**Price table** — `~/.config/vibegauge/prices.json`. VibeGauge ships no built-in prices (they change too often; a wrong number is worse than none). Without it, "API-equivalent cost" is simply hidden.
-```bash
-mkdir -p ~/.config/vibegauge
-curl -fsSL https://raw.githubusercontent.com/MaxHaiCom/VibeGauge/main/Resources/prices.example.json -o ~/.config/vibegauge/prices.json
-# then fill in per-million-token prices; model names match by longest prefix
-```
+## 配置与隐私
 
-**Request-based plan limits** — `~/.config/vibegauge/plans.json` (see [`Resources/plans.example.json`](Resources/plans.example.json)). For coding plans that expose no usage API, quota = requests counted by the local proxy ÷ the limit you enter, always labelled *estimated*.
+主要数据目录为 `%LOCALAPPDATA%\VibeGauge`，兼容读取部分 `%USERPROFILE%\.config\vibegauge` 下的旧配置。
 
-**Advanced settings** (`defaults write com.haifeng.vibegauge <key> <value>`, then restart the app):
+| 文件或存储位置 | 用途 |
+| --- | --- |
+| `features.json` | 功能选项、通知与诊断设置 |
+| `client-visibility.json` | 客户端展示偏好 |
+| `prices.json` | API 等价成本价格表 |
+| `plans.json` | 按本地请求估算的套餐规则 |
+| `proxy.json` | 记账代理端口与上游代理设置 |
+| `usage-ledger-v2.json` | 已观察到的本地用量账本 |
+| `codex-proxy-rs-history` 目录 | 按站点和密钥隔离的服务端历史用量缓存 |
+| Windows 凭据管理器 | 主动登记的额度查询 API 密钥 |
+| 当前用户加密存储 | 按地址保存的 Clash / Mihomo 控制器密钥 |
 
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `logRetentionDays` | `30` | Session logs older than this are offered for cleanup (min 7) |
-| `clashAPI` | `http://127.0.0.1:9090` | Clash / mihomo / sing-box controller for the Network tab (loopback only) |
-| `clashSecret` | — | Controller secret, if you set one |
-| `codexRemoteHost` | off | `user@host` with password-less SSH; merges Codex quota from another Mac |
-| `proxyPort` | `18790` | Accounting proxy port, if 18790 is taken (1024–65535); reinstall the proxy from the menu afterwards |
+- 用量分析和历史账本保留在本机，不向本项目上传对话、用量日志或机器标识。
+- 本地代理会将请求和认证信息转发给用户指定的目标服务，记账日志不保存对话正文或原始密钥。
+- 主动登记的密钥用于查询对应站点；Codex Proxy RS 需要向所填站点建立密钥会话。
+- 外网出口诊断、官方状态、公开价格和软件更新会访问各自服务，不能视为完全离线功能。
+- 软件更新检查面向 **VibeGauge 的 GitHub 正式版**，不是 Windows 系统更新；只提示和打开发布页，不自动安装。
+- 状态栏桥接、观察钩子和清理操作有明确入口，不会因普通用量扫描自动删除原客户端会话。
 
-All files, fields, and switches are specified in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+## 从源码构建
 
----
+开发需要 **.NET 10 SDK**；生成安装包还需 **NSIS**。在 PowerShell 中运行：
 
-## 🗑️ Uninstall
+~~~powershell
+git clone https://github.com/Fourgetu/vibe-gauge.git
+cd vibe-gauge
 
-```bash
-/Applications/VibeGauge.app/Contents/MacOS/VibeGauge --uninstall-proxy   # only if you installed the proxy
-python3 ~/.config/vibegauge/vibegauge-statusline.py --uninstall claude   # only if you connected quota (same for: agy)
-rm -rf /Applications/VibeGauge.app ~/.config/vibegauge
-defaults delete com.haifeng.vibegauge
-```
-If you enabled *Launch at Login*, turn it off in the menu first (or remove it in System Settings → General → Login Items). Remember to strip the `http://127.0.0.1:18790/` prefix (or your `proxyPort`) from any `*_BASE_URL` you pointed at the proxy.
+# 运行测试
+dotnet test .\windows\VibeGauge.slnx -c Release
 
----
+# 生成免安装包及可用的安装包，使用独立输出目录
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\build.ps1 -OutputDirectory .\windows\artifacts\local-build
+~~~
 
-## 🛡️ Privacy & Security
+构建脚本会清理指定输出目录，勿将个人文件放入该目录；若需强制要求生成安装包，可追加 `-RequireInstaller`。上面的执行策略参数仅作用于这次 PowerShell 进程。
 
-- 🔒 **100% Local Data**: No analytics, no telemetry, no remote servers. Your token counts and usage data never leave your Mac.
-- 🔄 **Update check**: once a day VibeGauge asks the public GitHub API for the latest release version (no identifiers, nothing uploaded). It only shows a notice — it never downloads or installs anything. Turn it off under **Mac → Settings**.
-- 🔑 **Zero Key Disk Logging**: API keys processed by the local proxy remain strictly in volatile process memory for upstream balance checks. Recorded logs only store an 8-character SHA-256 fingerprint; URL query parameters are stripped.
-- ⚙️ **Non-Intrusive**: VibeGauge reads local logs and network settings, and makes the documented trace probes. To show your plan and sign-in state it reads a few fields from the CLIs' local auth files: the plan and subscription-date claims inside Codex's `auth.json` id_token (the plan shown on the card prefers the session logs), and the sign-in mode of agy / Grok. For Kimi Code it reads the local `kimi web` bearer token (`~/.kimi-code/server.token`) and sends it only to that service on `127.0.0.1`, after checking that the port is held by a process of your own user account and really is `kimi web` (redirects are not followed). **Tokens are never copied, stored, logged, or sent off the machine**. API keys you add for quota lookups go into your Keychain only and are sent only to that provider's own usage endpoint; the Volcengine / Alibaba official CLIs run locally with their own sign-in, and VibeGauge never sees those credentials. VibeGauge never authenticates as you. It does not proxy your login sessions or modify system network configurations. The only vendor configs it touches are Claude Code / agy's `statusLine` entry and, if you turn on Pending sessions, VibeGauge's own observe-only hooks, each only when you switch it on (backed up, reversible).
-- 🌐 **API proxy balance checks** (only if you install the proxy): the API keys your tools send through it stay in the proxy's memory and are used every 5 minutes to query that same provider's balance / quota endpoint (DeepSeek, OpenRouter, Kimi …).
-- 🛡️ **Whitelisted Safe Reaping**: The process cleaner strictly enforces multi-criteria verification before terminating orphaned processes.
+Windows 主程序、核心解析和代理代码位于 `windows/src`，自动化测试位于 `windows/tests`。上游 macOS 源码保留在 `Sources`，其安装与使用请参阅[原版项目](https://github.com/MaxHaiCom/VibeGauge)。
 
----
+## 更新与使用说明
 
-## 🤝 Contributing
+| 主题 | 文档 |
+| --- | --- |
+| 当前正式版 | [v1.6.10 更新说明](docs/releases/v1.6.10.md) |
+| Codex Proxy RS | [配置、统计范围与排查](docs/windows-codex-proxy-rs.md) |
+| 软路由与控制器密钥 | [控制器接入说明](docs/windows-router-controller-2026-09-30.md) |
+| 统计与独立智能体用量 | [统计页说明](docs/windows-statistics-agents-2026-09-30.md) |
+| OpenRouter 计价 | [价格导入与模型匹配](docs/windows-openrouter-prices-2026-09-30.md) |
+| 网络体检、项目用量与刷新 | [Windows 功能补齐说明](docs/windows-parity-2026-10-01.md) |
+| 既往更新 | [版本记录目录](docs/releases) |
 
-Contributions, feature requests, and bug reports are warmly welcomed — see [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: please report privately, see [SECURITY.md](SECURITY.md).
-- Discover a new MCP process pattern? Please open a PR to update the signature filters.
-- Vendor changed their log format or introduced a new quota tier? Feel free to submit an issue.
+## 反馈、致谢与许可
 
-## 🔗 Community
+Windows 问题请到[本分支问题区](https://github.com/Fourgetu/vibe-gauge/issues)反馈，注明 VibeGauge 版本、Windows 版本、所用客户端及复现步骤。提交日志或截图前请移除密钥、会话正文和其他私人信息。
 
-- [LINUX DO](https://linux.do) — a community of developers where VibeGauge is discussed. Thanks to everyone there for the feedback.
+感谢 [MaxHaiCom/VibeGauge](https://github.com/MaxHaiCom/VibeGauge) 提供原版设计与实现。Windows 移植、适配及扩展在此基础上持续维护，也欢迎通过[代码贡献](https://github.com/Fourgetu/vibe-gauge/pulls)改进。
 
----
-
-## 📄 License
-
-Released under the [MIT License](LICENSE).
+项目遵循 [MIT 开源许可](LICENSE)，保留上游版权与许可声明。
