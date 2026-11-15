@@ -88,7 +88,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
         clientVisibilitySettings = new(coordinator.Paths.LocalDataRoot);
         hiddenClients = clientVisibilitySettings.Load();
-        EnsureClientOptions(["Claude", "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop"]);
+        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop"]);
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -340,7 +340,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
     internal static PlatformStatus WithActivity(PlatformStatus value, ProcessReport activity)
     {
-        int? sessions = value.Name switch { "Claude" => activity.ClaudeSessions, "Codex" => activity.CodexSessions,
+        int? sessions = value.Name switch { "Claude" => activity.ClaudeSessions, ClaudeDesktop.Name => activity.ClaudeDesktopProcesses, "Codex" => activity.CodexSessions,
             "Gemini" => activity.GeminiSessions, "PI-Desktop" => activity.PiDesktopProcesses,
             "ZCode" => activity.ZCodeProcesses, "WorkBuddy" => activity.WorkBuddyProcesses, "DSH Desktop" => activity.DshProcesses, _ => null };
         return sessions is { } count ? value with { IsRunning = count > 0, Sessions = count } : value;
@@ -505,7 +505,7 @@ public sealed record PlatformRow(
         .Concat(Quotas.Select(x => $"{x.Label} {x.PercentText} · {x.TrustText} · {x.ResetText}" +
             (x.ForecastText.Length > 0 ? "\n" + x.ForecastText : ""))).Where(x => x.Length > 0));
     public bool IsLocal => Tier == "Local" || Name is "Ollama" or "LM Studio" or "llama.cpp";
-    public bool ShowTier => Tier is not ("未知" or "" or "未登录" or "未检测到" or "未安装") && (IsWide || Tier.Length <= 9 && Name.Length + Tier.Length <= 18);
+    public bool ShowTier => (Name != ClaudeDesktop.Name || HasQuota) && Tier is not ("未知" or "" or "未登录" or "未检测到" or "未安装") && (IsWide || Tier.Length <= 9 && Name.Length + Tier.Length <= 18);
     public double TitleMaxWidth => IsWide ? 270 : ShowTier ? 85 : 120;
     public bool HasSecondary => Quotas.Any(x => x.Secondary);
     public IEnumerable<QuotaRow> PrimaryQuotas => Quotas.Where(x => !x.Secondary);
@@ -530,7 +530,7 @@ public sealed record PlatformRow(
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
         var runtime = value.IsRunning ? "运行中" : "未运行";
-        var desktop = value.Name is PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName;
+        var desktop = value.Name is ClaudeDesktop.Name or PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName;
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
@@ -561,9 +561,9 @@ public sealed record PlatformRow(
         return new(
             value.Name, value.Tier.Length == 0 ? "未知" : value.Tier, runtime, session, detail, tone,
             quotas, quotas.Length > 0, quotas.Length == 0,
-            value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
+            value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name == ClaudeDesktop.Name && quotas.Length > 0 || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
             quotas.Length == 0 || value.AlwaysShowDetail,
-            desktop || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
+            desktop && (value.Name != ClaudeDesktop.Name || quotas.Length == 0) || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
                 ? string.Join("\n", detail.Split('\n').Take(2)) : "", ProviderDetails.CanOpen(value));
     }

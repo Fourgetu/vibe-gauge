@@ -37,7 +37,8 @@ internal static class ClientVisibilityPanelChecks
             var apply = typeof(DashboardViewModel).GetMethod("Apply", BindingFlags.Instance | BindingFlags.NonPublic)!;
             apply.Invoke(vm, [snapshot]);
             Assert.Equal(9, vm.Platforms.Count);
-            Assert.Equal(9, vm.ClientOptions.Count);
+            Assert.Equal(10, vm.ClientOptions.Count);
+            Assert.Contains(vm.ClientOptions, x => x.Name == ClaudeDesktop.Name);
             window = new MainWindow(vm, autoHide: false) { Width = 420, Height = 560, Left = -20000, Top = -20000, ShowInTaskbar = false, ShowActivated = false };
             window.Show();
             var controls = (ItemsControl)window.FindName("ClientVisibilityOptions");
@@ -51,7 +52,7 @@ internal static class ClientVisibilityPanelChecks
                 controls.BringIntoView();
                 Layout(window);
                 var toggles = Descendants<CheckBox>(controls).ToArray();
-                Assert.Equal(9, toggles.Length);
+                Assert.Equal(10, toggles.Length);
                 Assert.All(toggles, x => { Assert.IsType<string>(x.Content); Assert.True(x.ActualWidth > 100); });
                 var toggle = toggles.Single(x => (string)x.Content == "WorkBuddy");
                 toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, false);

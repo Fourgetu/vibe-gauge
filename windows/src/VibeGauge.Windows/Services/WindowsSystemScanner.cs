@@ -304,7 +304,8 @@ public sealed partial class WindowsSystemScanner
         foreach (var process in processes.Values)
         {
             var command = process.CommandLine.Length > 0 ? process.CommandLine : process.Name;
-            if (IsClaude(command)) matched[process.ProcessId] = "claude";
+            if (IsClaudeDesktop(process)) matched[process.ProcessId] = "claude-desktop";
+            else if (IsClaudeCode(process, command)) matched[process.ProcessId] = "claude";
             // A short-lived quota helper belongs to VibeGauge, not a user session.
             else if (IsCodex(command) && process.ParentProcessId != Environment.ProcessId) matched[process.ProcessId] = "codex";
             else if (IsGemini(command)) matched[process.ProcessId] = "gemini";
@@ -358,10 +359,11 @@ public sealed partial class WindowsSystemScanner
             roots.Select(x =>
             {
                 var process = processes[x.Key];
-                var provider = x.Value switch { "claude" => "Claude", "codex" => "Codex", "gemini" => "Gemini", "pi-desktop" => "PI-Desktop",
+                var provider = x.Value switch { "claude" => "Claude", "claude-desktop" => ClaudeDesktop.Name, "codex" => "Codex", "gemini" => "Gemini", "pi-desktop" => "PI-Desktop",
                     "zcode" => "ZCode", "workbuddy" => "WorkBuddy", "dsh" => "DSH Desktop", _ => x.Value };
-                return new ProviderProcess(provider, process.ProcessId, process.StartedAt, process.MemoryMb, process.ExecutablePath);
-            }).ToArray());
+                return new ProviderProcess(provider, process.ProcessId, process.StartedAt, process.MemoryMb, process.ExecutablePath,
+                    provider == ClaudeDesktop.Name ? ClaudeDataDirectory(x.Key, processes) : "");
+            }).ToArray(), ClaudeDesktopProcesses: roots.Count(x => x.Value == "claude-desktop"));
     }
 
     private static bool HasMatchedAncestor(int pid, IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlyDictionary<int, string> matched)
@@ -369,7 +371,8 @@ public sealed partial class WindowsSystemScanner
         var current = processes.TryGetValue(pid, out var item) ? item.ParentProcessId : 0;
         for (var hops = 0; current > 0 && hops < 30; hops++)
         {
-            if (matched.ContainsKey(current)) return true;
+            if (matched.TryGetValue(current, out var ancestor) &&
+                !(matched[pid] == "claude" && ancestor == "claude-desktop")) return true;
             current = processes.TryGetValue(current, out var parent) ? parent.ParentProcessId : 0;
         }
         return false;

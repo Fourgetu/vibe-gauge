@@ -4,11 +4,12 @@ using System.Text.Json;
 
 namespace VibeGauge.Core;
 
-public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient = null) : IDisposable
+public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient = null, IClaudeDesktopQuotaClient? claudeClient = null) : IDisposable
 {
     private readonly CodexQuotaRefresh? codexLive = codexClient is null ? null : new(codexClient);
-    public void InvalidateCodex() => codexLive?.Invalidate();
-    public void Dispose() => codexLive?.Dispose();
+    private readonly ClaudeDesktopQuotaRefresh? claudeLive = claudeClient is null ? null : new(claudeClient);
+    public void InvalidateAccountQuotas() { codexLive?.Invalidate(); claudeLive?.Invalidate(); }
+    public void Dispose() { codexLive?.Dispose(); claudeLive?.Dispose(); }
     private static readonly HttpClient OllamaClient = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false })
     { Timeout = TimeSpan.FromMilliseconds(450), MaxResponseContentBufferSize = 512 * 1024 };
     private DateTimeOffset ollamaMeasuredAt;
@@ -22,7 +23,9 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
         UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null)
     {
-        PlatformStatus[] platforms =
+        var desktopClaude = ClaudeDesktop.Read(paths, processes);
+        if (claudeLive is not null) desktopClaude = claudeLive.Apply(desktopClaude);
+        List<PlatformStatus> platforms =
         [
             ReadClaude(processes.ClaudeSessions),
             ReadCodex(processes.CodexSessions, usage, codexTotal),
@@ -34,9 +37,18 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
                 processes.WorkBuddyProcesses, usage, workBuddyTotal),
             ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal)
         ];
+        if (desktopClaude is not null)
+        {
+            // Do not show an unconfigured Code card as the desktop's login status.
+            var code = platforms[0];
+            if (processes.ClaudeSessions == 0 && !File.Exists(paths.ClaudeSettings) && !Directory.Exists(paths.ClaudeRoot) &&
+                code.DataState == ProviderDataState.NotSignedIn)
+                platforms.RemoveAt(0);
+            platforms.Insert(0, desktopClaude);
+        }
         return platforms.Select(p =>
         {
-            var metadata = ProviderDetails.ReadMetadata(paths, p);
+            var metadata = p.Metadata ?? ProviderDetails.ReadMetadata(paths, p);
             if (metadataCache.TryGetValue(p.Name, out var previous) && previous.Rows.SequenceEqual(metadata.Rows) &&
                 previous.Sources.SequenceEqual(metadata.Sources)) metadata = previous;
             else metadataCache[p.Name] = metadata;

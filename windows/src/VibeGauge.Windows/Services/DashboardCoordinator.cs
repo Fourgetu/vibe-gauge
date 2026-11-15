@@ -22,7 +22,7 @@ public sealed class DashboardCoordinator : IDisposable
     {
         paths ??= new AppPaths();
         Paths = paths;
-        quotas = new(paths, new CodexAppServerQuotaClient(paths));
+        quotas = new(paths, new CodexAppServerQuotaClient(paths), new ClaudeDesktopQuotaClient());
         usage = new(paths);
         sampler = new(paths);
         sessions = new(paths);
@@ -69,7 +69,7 @@ public sealed class DashboardCoordinator : IDisposable
         new LightweightSnapshot(activity ? system.ScanActivity() : null, rates ? network.Scan() : null));
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
-    public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateCodex(); }
+    public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateAccountQuotas(); }
     public void Dispose() { quotas.Dispose(); official.Dispose(); }
     public bool EnsureDurableHistory()
     {

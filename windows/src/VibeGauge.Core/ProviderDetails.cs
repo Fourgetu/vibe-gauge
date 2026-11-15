@@ -5,7 +5,8 @@ namespace VibeGauge.Core;
 public sealed record ProviderInfoRow(string Label, string Value);
 public sealed record ProviderMetadata(IReadOnlyList<ProviderInfoRow> Rows, IReadOnlyList<string> Sources);
 public sealed record NamedQuota(string Label, QuotaWindow Window);
-public sealed record ProviderProcess(string Provider, int ProcessId, DateTimeOffset? StartedAt, double MemoryMb, string Executable);
+public sealed record ProviderProcess(string Provider, int ProcessId, DateTimeOffset? StartedAt, double MemoryMb, string Executable,
+    string DataDirectory = "");
 
 public static class ProviderDetails
 {

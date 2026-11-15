@@ -39,7 +39,14 @@ public sealed partial class WindowsSystemScanner
                     // PID reuse must never inherit another process's command line.
                     if (metadata.TryGetValue(pid, out var old) && SameActivityIdentity(old, item, started))
                         item = old with { ParentProcessId = item.ParentProcessId };
-                    else item = item with { StartedAt = started };
+                    else
+                    {
+                        item = item with { StartedAt = started };
+                        // A newly started desktop has the same image name as the Code CLI.
+                        // Resolve its path before classifying it in the fast refresh.
+                        try { item = item with { ExecutablePath = process.MainModule?.FileName ?? "" }; }
+                        catch (System.ComponentModel.Win32Exception) { }
+                    }
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 { continue; }

@@ -7,10 +7,14 @@ public sealed class AppPaths
         Home = Path.GetFullPath(home ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         LocalDataRoot = Path.GetFullPath(localAppData ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VibeGauge"));
+        WindowsLocalDataRoot = home is null ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : Path.Combine(Home, "AppData", "Local");
+        WindowsRoamingDataRoot = home is null ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) : Path.Combine(Home, "AppData", "Roaming");
     }
 
     public string Home { get; }
     public string LocalDataRoot { get; }
+    public string WindowsLocalDataRoot { get; }
+    public string WindowsRoamingDataRoot { get; }
     public string LegacyDataRoot => Path.Combine(Home, ".config", "vibegauge");
     public string ClaudeRoot => Path.Combine(Home, ".claude");
     public string ClaudeSettings => Path.Combine(Home, ".claude.json");

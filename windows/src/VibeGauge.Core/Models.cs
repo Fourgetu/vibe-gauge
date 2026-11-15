@@ -9,7 +9,8 @@ public enum ProviderDataState
     NoQuota,
     ReadFailed,
     Stale,
-    NotRunning
+    NotRunning,
+    AuthenticationUnknown
 }
 
 public enum UsageDataState
@@ -30,7 +31,8 @@ public sealed record QuotaWindow(
     int ReleaseCount = 0,
     double RecentPercentPerHour = 0,
     int RecentSpanMinutes = 0,
-    int? LastCyclePercent = null)
+    int? LastCyclePercent = null,
+    bool IsStale = false)
 {
     public int EffectivePercent(DateTimeOffset now) =>
         !IsRolling && ResetsAt is { } reset && reset <= now ? 0 : Math.Clamp(UsedPercent, 0, 100);
@@ -43,6 +45,7 @@ public sealed record QuotaWindow(
 
     public string Trust(DateTimeOffset now) =>
         !IsRolling && ResetsAt <= now ? "等待新回报" :
+        IsStale ? "可能过期" :
         IsRolling || IsEstimate ? "本机估算" :
         Age(now)?.TotalSeconds > (Window > TimeSpan.Zero ? Window.TotalSeconds / 5 : 86400)
             ? "可能过期" : "官方回报";
@@ -297,7 +300,8 @@ public sealed record ProcessReport(
     int WorkBuddyProcesses = 0,
     int DshProcesses = 0,
     IReadOnlyList<ProviderProcess>? ProviderProcesses = null,
-    IReadOnlyList<LocalRuntime>? LocalRuntimes = null)
+    IReadOnlyList<LocalRuntime>? LocalRuntimes = null,
+    int ClaudeDesktopProcesses = 0)
 {
     public static ProcessReport Empty { get; } = new(0, 0, 0, 0, false, 0, 0, [], []);
 }
