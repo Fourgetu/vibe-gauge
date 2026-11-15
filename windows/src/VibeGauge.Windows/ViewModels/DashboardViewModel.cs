@@ -561,7 +561,7 @@ public sealed record PlatformRow(
         return new(
             value.Name, value.Tier.Length == 0 ? "未知" : value.Tier, runtime, session, detail, tone,
             quotas, quotas.Length > 0, quotas.Length == 0,
-            value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name == ClaudeDesktop.Name && quotas.Length > 0 || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
+            value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
             quotas.Length == 0 || value.AlwaysShowDetail,
             desktop && (value.Name != ClaudeDesktop.Name || quotas.Length == 0) || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail

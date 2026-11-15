@@ -100,7 +100,7 @@ public sealed class ClaudeDesktopQuotaClientTests
         var row = PlatformRow.From(new(ClaudeDesktop.Name, "Pro", true, 1, ProviderDataState.Available, "", result.FiveHour, result.Weekly));
         Assert.True(row.ShowReset);
         Assert.True(row.ShowTier);
-        Assert.True(row.IsWide);
+        Assert.False(row.IsWide);
         Assert.Equal("运行中", row.SessionText);
     }
 
