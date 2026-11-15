@@ -336,7 +336,7 @@ public sealed class SessionsPanel : Wpf.UserControl
                 row.Children.Add(InsightUi.Text($"{kind} · {pending.Tool}")); body.Children.Add(row);
             }
         }
-        if (summary.Active.Count > 0) Heading("会话上下文", $"近 2 小时活跃 {summary.Active.Count} 个", "TextSecondaryBrush");
+        if (summary.Active.Count > 0) Heading(summary.Active.Any(x => x.RecordedTokens is not null) ? "会话用量与上下文" : "会话上下文", $"近 2 小时活跃 {summary.Active.Count} 个", "TextSecondaryBrush");
         foreach (var session in summary.Active.Take(8))
         {
             var row = new Wpf.Grid { Margin = new Thickness(0, 4, 0, 2), ToolTip = session.Directory };
@@ -351,6 +351,14 @@ public sealed class SessionsPanel : Wpf.UserControl
             label.Children.Add(line);
             if (session.Compactions > 0) label.Children.Add(InsightUi.Text($"今日压缩 {session.Compactions} 次"));
             row.Children.Add(label);
+            if (session.RecordedTokens is { } recorded)
+            {
+                Wpf.Grid.SetColumnSpan(label, 4);
+                label.Children.Add(InsightUi.Text($"已记录 {Formatting.Tokens(recorded, tokenUnit)} Token · {session.RecordedEntries} 条用量记录"));
+                label.Children.Add(InsightUi.Text("累计用量，不代表当前上下文占用"));
+                body.Children.Add(row);
+                continue;
+            }
             var meter = new Wpf.ProgressBar
             {
                 Value = Math.Clamp(session.UsedPercent ?? 0, 0, 100),

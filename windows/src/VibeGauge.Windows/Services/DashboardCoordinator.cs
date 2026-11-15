@@ -41,10 +41,10 @@ public sealed class DashboardCoordinator : IDisposable
             var targets = reaper.Evaluate(windows.Processes.Orphans, options.AutoReap,
                 windows.Metrics.AvailableMemoryPercent <= Math.Clamp(options.MemoryFreeThreshold, 1, 50), DateTimeOffset.Now);
             if (targets.Count > 0) LastAutoCleanup = system.Clean(targets);
-            var usageSnapshot = usage.Scan();
+            var usageSnapshot = usage.Scan(windows.Processes);
             var platforms = quotas.Scan(windows.Processes, usageSnapshot.Cli, usageSnapshot.PiDesktopTotal, usageSnapshot.ZCodeTotal,
-                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal);
-            var sessionSnapshot = sessions.Scan(DateTimeOffset.Now);
+                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal, usageSnapshot.ClaudeDesktopTotal);
+            var sessionSnapshot = sessions.Scan(DateTimeOffset.Now, usageSnapshot.ClaudeDesktopRecords);
             var adapters = network.Scan();
             return (windows, usageSnapshot, platforms, sessionSnapshot, adapters);
         });

@@ -196,6 +196,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public string CacheHitText { get => cacheHitText; private set => Set(ref cacheHitText, value); }
     public string GeneratedText { get => generatedText; private set => Set(ref generatedText, value); }
     public string ThinkingText { get => thinkingText; private set => Set(ref thinkingText, value); }
+    public string CallsSummaryText => lastSnapshot?.Usage.Sources.Any(x => x.Name == ClaudeDesktop.Name && x.Turns > 0) == true
+        ? $"今日 {CallsText} 条用量记录" : $"今日 {CallsText} 次调用";
     public string CallsText { get => callsText; private set => Set(ref callsText, value); }
     public string ApiHeadline { get => apiHeadline; private set => Set(ref apiHeadline, value); }
     public string ApiDetail { get => apiDetail; private set => Set(ref apiDetail, value); }
@@ -377,8 +379,10 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         CacheHitText = usage.CacheHitRate is { } hit ? $"{hit:0.0}%" : "暂无";
         CacheHitPercent = usage.CacheHitRate ?? 0;
         GeneratedText = usage.Turns == 0 ? "暂无" : Tokens(usage.OutputTokens);
-        ThinkingText = usage.Turns == 0 ? "暂无" : Tokens(usage.ThinkingTokens);
+        ThinkingText = usage.Turns == 0 ? "暂无" : usage.Sources.Any(x => x.Name == ClaudeDesktop.Name && x.Turns > 0)
+            ? usage.ThinkingTokens > 0 ? Tokens(usage.ThinkingTokens) + "（部分）" : "未完整回报" : Tokens(usage.ThinkingTokens);
         CallsText = usage.Turns.ToString();
+        Raise(nameof(CallsSummaryText));
 
         var recordedSources = usage.Sources.Where(s => s.Turns > 0).Select(s => s.Name)
             .Concat((value.Statistics?.DailyModels ?? []).Where(x => x.Usage.Calls > 0).Select(x => x.Usage.Source))
@@ -525,7 +529,7 @@ public sealed record PlatformRow(
         if (value.DesktopTokens is { } desktopTokens)
         {
             var display = desktopTokens.Format(unit);
-            value = value with { Detail = display.Detail + (value.Name == "Codex" ? "\n本地 Codex 日志统计，包含账号和 API 模式历史；不代表 API 账单。" : ""), CompactDetail = display.Compact };
+            value = value with { Detail = (value.Name == ClaudeDesktop.Name ? value.Detail + "\n" : "") + display.Detail + (value.Name == "Codex" ? "\n本地 Codex 日志统计，包含账号和 API 模式历史；不代表 API 账单。" : ""), CompactDetail = display.Compact };
         }
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
@@ -573,12 +577,16 @@ public sealed record UsageSourceRow(string Name, string Metrics, string Note, st
 {
     public static UsageSourceRow From(UsageSourceSummary value, TokenUnit unit = TokenUnit.Chinese)
     {
-        var metrics = value.State == UsageDataState.Available
+        var metrics = value.Name == ClaudeDesktop.Name && value.State == UsageDataState.Available
+            ? $"输入（含缓存） {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)}"
+            : value.State == UsageDataState.Available
             ? $"上下文 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}"
             : value.Note;
         var available = value.State == UsageDataState.Available;
         return new(value.Name, metrics, value.Note, available ? "Good" : "Muted",
-            available ? $"总 Token {Formatting.Tokens(value.TotalTokens, unit)} · {value.Turns} 次" : "", available);
+            available ? value.Name == ClaudeDesktop.Name
+                ? $"已记录 Token {Formatting.Tokens(value.TotalTokens, unit)} · {value.Turns} 条记录"
+                : $"总 Token {Formatting.Tokens(value.TotalTokens, unit)} · {value.Turns} 次" : "", available);
     }
 }
 
@@ -591,7 +599,9 @@ public sealed record RecentRow(string Model, string Source, string Metrics, stri
         return new(
             Formatting.ModelDisplayName(value.Model),
             value.Source,
-            $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n上下文 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
+            value.Source == ClaudeDesktop.Name
+                ? $"已记录 Token {Formatting.Tokens(value.TotalTokens, unit)}\n输入（含缓存） {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)}"
+                : $"总 Token {Formatting.Tokens(value.TotalTokens, unit)}\n上下文 {Formatting.Tokens(value.ContextTokens, unit)} · 输出 {Formatting.Tokens(value.OutputTokens, unit)} · 思考 {Formatting.Tokens(value.ThinkingTokens, unit)}",
             hit is { } rate ? $"{rate:0.0}% 命中" : "暂无缓存数据",
             hit ?? 0,
             RelativeTime(value.Timestamp),

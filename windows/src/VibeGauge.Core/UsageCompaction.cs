@@ -11,7 +11,7 @@ public sealed partial class UsageScanner
     private bool coldDirty;
     public int HotRecordCount => cache.Files.Values.Sum(x => x.Records.Count);
     public int CompactedCalls => cache.ColdStatistics?.Days.Sum(x => x.Calls) ?? 0;
-    private static bool CanCompact(FileState state) => state.Source is not ("Claude" or "API");
+    private static bool CanCompact(FileState state) => state.Source is not ("Claude" or "API" or ClaudeDesktop.Name);
     private static int[] BloomBits(InteractionRecord row, int size)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(row.Source + "\0" + row.Id));

@@ -100,16 +100,16 @@
                 <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,11,0,11" />
                 <DockPanel x:Name="UsageSummaryHeading" LastChildFill="True">
                     <Border DockPanel.Dock="Right" Background="{StaticResource GoodDimBrush}" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"><TextBlock Text="{Binding CacheHitText, StringFormat=缓存 {0}}" Foreground="{StaticResource GoodBrush}" FontWeight="SemiBold" FontSize="12" /></Border>
-                    <WrapPanel VerticalAlignment="Center" ToolTip="全部客户端今日总量（包含已收起的客户端）。总 Token = 上下文 + 输出；缓存已包含在上下文中，思考已包含在输出中，不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{Binding TotalTokensText}" FontSize="16" FontWeight="Bold" Margin="9,0,0,0" /></WrapPanel>
+                    <WrapPanel VerticalAlignment="Center" ToolTip="已读取的客户端今日用量（包含已收起的客户端）；未记录不等于实际用量为零。总 Token = 上下文 + 输出，缓存不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{Binding TotalTokensText}" FontSize="16" FontWeight="Bold" Margin="9,0,0,0" /></WrapPanel>
                 </DockPanel>
                 <ProgressBar Value="{Binding CacheHitPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,8,0,7" ToolTip="上下文缓存命中率" />
                 <DockPanel LastChildFill="True">
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding CallsText, StringFormat=今日 {0} 次调用}" Style="{StaticResource CaptionStyle}" Margin="8,0,0,0" />
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding CallsSummaryText}" Style="{StaticResource CaptionStyle}" Margin="8,0,0,0" />
                     <WrapPanel><TextBlock Text="{Binding ContextText, StringFormat=上下文 {0}}" Style="{StaticResource CaptionStyle}" Margin="0,0,8,0" /><TextBlock Text="{Binding GeneratedText, StringFormat=输出 {0}}" Style="{StaticResource CaptionStyle}" Margin="0,0,8,0" /><TextBlock Text="{Binding ThinkingText, StringFormat=思考 {0}}" Style="{StaticResource CaptionStyle}" /></WrapPanel>
                 </DockPanel>
                 <local:ProjectUsagePanel x:Name="ProjectsView" />
                 <ItemsControl ItemsSource="{Binding UsageSources}" Margin="0,9,0,4"><ItemsControl.ItemTemplate><DataTemplate>
-                    <DockPanel Margin="0,3"><TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Width="70" FontSize="11" /><StackPanel><TextBlock Text="{Binding TotalText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" Visibility="{Binding HasUsage, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Metrics}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" ToolTip="{Binding Metrics}" /></StackPanel></DockPanel>
+                    <DockPanel Margin="0,3"><TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Width="92" Margin="0,0,6,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" FontSize="11" /><StackPanel><TextBlock Text="{Binding TotalText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" Visibility="{Binding HasUsage, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Metrics}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" ToolTip="{Binding Metrics}" /></StackPanel></DockPanel>
                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
 
                 <Border Background="{StaticResource CardBrush}" CornerRadius="8" Padding="10,9" Margin="0,8,0,0">

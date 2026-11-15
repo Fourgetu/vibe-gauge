@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace VibeGauge.Core;
 
 public sealed record SessionContext(string Id, string Tool, string Directory, string Model,
-    double? UsedPercent, long? Window, DateTimeOffset UpdatedAt, int Compactions, IReadOnlyList<CompactionEvent>? CompactionEvents = null);
+    double? UsedPercent, long? Window, DateTimeOffset UpdatedAt, int Compactions, IReadOnlyList<CompactionEvent>? CompactionEvents = null, long? RecordedTokens = null, int RecordedEntries = 0);
 public sealed record CompactionEvent(string Id, DateTimeOffset At, long? PreTokens, long? PostTokens);
 public sealed record PendingSession(string Id, string Kind, string Tool, string Directory, DateTimeOffset Since);
 public sealed record SessionSummary(IReadOnlyList<SessionContext> Active, IReadOnlyList<PendingSession> Pending);
@@ -13,9 +13,16 @@ public sealed class SessionMonitor(AppPaths paths)
 {
     private readonly Dictionary<string, Cursor> cursors = new(StringComparer.OrdinalIgnoreCase);
 
-    public SessionSummary Scan(DateTimeOffset now)
+    public SessionSummary Scan(DateTimeOffset now, IReadOnlyList<InteractionRecord>? desktopRecords = null)
     {
         var active = new List<SessionContext>();
+        foreach (var group in (desktopRecords ?? []).Where(x => x.SessionId.Length > 0 && x.Timestamp <= now).GroupBy(x => x.SessionId))
+        {
+            var latest = group.MaxBy(x => x.Timestamp)!;
+            if (now - latest.Timestamp >= TimeSpan.FromHours(2)) continue;
+            active.Add(new(group.Key, ClaudeDesktop.Name, "桌面会话 · " + group.Key[..Math.Min(8, group.Key.Length)], latest.Model,
+                null, null, latest.Timestamp, 0, RecordedTokens: group.Sum(x => x.TotalTokens), RecordedEntries: group.Count()));
+        }
         using var claude = JsonSupport.ReadDocument(paths.ResolveOwnDataFile("claude-sessions.json"));
         if (claude?.RootElement.TryGetProperty("sessions", out var rows) == true && rows.ValueKind == JsonValueKind.Object)
             foreach (var entry in rows.EnumerateObject())

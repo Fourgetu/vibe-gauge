@@ -95,7 +95,7 @@ public sealed record InteractionRecord(
     IReadOnlyDictionary<string, string>? RateLimits = null,
     bool? Completed = null,
     string ApiHost = "",
-    string Cwd = "")
+    string Cwd = "", string SessionId = "", string UsageSurface = "")
 {
     [JsonIgnore] public string ApiAccount => Source["API · ".Length..] + (ApiHost.Length > 0 ? " · " + ApiHost : "");
     [JsonIgnore] public bool UnknownUsage => Status is >= 200 and < 400 && (Completed == false || UsageKnown == false || UsageKnown is null && TotalTokens == 0);
@@ -250,7 +250,8 @@ public sealed record ProxyRuntimeStatus(
 public sealed record UsageScanResult(UsageSummary Cli, ApiUsageSummary Api, UsageStatistics? Statistics = null,
     UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null,
     UsageSourceSummary? WorkBuddyTotal = null, UsageSourceSummary? DshTotal = null,
-    IReadOnlyList<PlatformStatus>? Plans = null, UsageSourceSummary? CodexTotal = null);
+    IReadOnlyList<PlatformStatus>? Plans = null, UsageSourceSummary? CodexTotal = null, UsageSourceSummary? ClaudeDesktopTotal = null,
+    IReadOnlyList<InteractionRecord>? ClaudeDesktopRecords = null);
 
 public sealed record UsageScannerDiagnostics(int FilesDiscovered, int FilesRead, long BytesRead);
 

@@ -21,7 +21,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     private DateTimeOffset? codexQuotaSince;
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
-        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null)
+        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null, UsageSourceSummary? claudeDesktopTotal = null)
     {
         var desktopClaude = ClaudeDesktop.Read(paths, processes);
         if (claudeLive is not null) desktopClaude = claudeLive.Apply(desktopClaude);
@@ -44,6 +44,10 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
             if (processes.ClaudeSessions == 0 && !File.Exists(paths.ClaudeSettings) && !Directory.Exists(paths.ClaudeRoot) &&
                 code.DataState == ProviderDataState.NotSignedIn)
                 platforms.RemoveAt(0);
+            var desktopToday = usage?.Sources.FirstOrDefault(x => x.Name == ClaudeDesktop.Name);
+            if (desktopToday is not null)
+                desktopClaude = desktopClaude with { DesktopTokens = new(desktopToday, claudeDesktopTotal, true),
+                    Detail = desktopClaude.Detail + "\n" + (desktopToday.Note.Length > 0 ? desktopToday.Note : "来自桌面真实用量账本；仅覆盖已记录活动") };
             platforms.Insert(0, desktopClaude);
         }
         return platforms.Select(p =>

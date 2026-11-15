@@ -81,12 +81,19 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
         var sessions = snapshot.Sessions?.Active.Where(x => ProviderDetails.Matches(provider.Name, x.Tool)).ToArray() ?? [];
         if (sessions.Length > 0)
         {
-            var section = Section($"会话上下文 · {sessions.Length}");
+            var section = Section(provider.Name == ClaudeDesktop.Name ? $"会话用量 · {sessions.Length}" : $"会话上下文 · {sessions.Length}");
             foreach (var session in sessions)
             {
                 var title = InsightUi.Text(string.IsNullOrEmpty(session.Directory) ? "未知工作目录" : session.Directory, true);
                 title.ToolTip = session.Directory;
                 section.Children.Add(title);
+                if (session.RecordedTokens is { } recorded)
+                {
+                    section.Children.Add(InsightUi.Text($"已记录 {Tokens(recorded)} Token · {session.RecordedEntries} 条用量记录"));
+                    section.Children.Add(InsightUi.Text("累计用量，不代表当前上下文占用"));
+                    section.Children.Add(InsightUi.Text($"最后活动 {session.UpdatedAt.ToLocalTime():MM-dd HH:mm}"));
+                    continue;
+                }
                 section.Children.Add(InsightUi.Text($"{Formatting.ModelDisplayName(session.Model)} · " +
                     (session.UsedPercent is { } percent ? $"上下文 {percent:0.#}%" : "暂无上下文比例") +
                     (session.Window is { } capacity ? $" / {Tokens(capacity)} Token" : "")));
@@ -186,12 +193,16 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             return;
         }
         Pair(section, "总 Token", Tokens(source.TotalTokens), $"{source.TotalTokens:N0} Token");
-        Pair(section, "调用", $"{source.Turns:N0} 次");
+        Pair(section, source.Name == ClaudeDesktop.Name ? "用量记录" : "调用", $"{source.Turns:N0} 次");
         foreach (var (label, value) in new[] { ("上下文", source.ContextTokens), ("输出", source.OutputTokens),
             ("缓存读取", source.CacheReadTokens), ("缓存写入", source.CacheWriteTokens), ("思考", source.ThinkingTokens) })
-            Pair(section, label, Tokens(value), $"{value:N0} Token");
+            if (source.Name != ClaudeDesktop.Name || label != "思考")
+                Pair(section, source.Name == ClaudeDesktop.Name && label == "上下文" ? "输入（含缓存）" : label, Tokens(value), $"{value:N0} Token");
         if (source.CacheHitRate is { } hit) Pair(section, "缓存命中", $"{hit:0.0}%");
-        section.Children.Add(InsightUi.Text("总量 = 上下文 + 输出；缓存与思考为明细，不重复相加。"));
+        section.Children.Add(InsightUi.Text(source.Name == ClaudeDesktop.Name
+            ? "总量 = 输入（含缓存）+ 输出；仅覆盖已记录活动，未回报独立思考用量。"
+            : "总量 = 上下文 + 输出；缓存与思考为明细，不重复相加。"));
+        if (source.Name == ClaudeDesktop.Name && source.Note.Length > 0) section.Children.Add(InsightUi.Text(source.Note));
     }
 
     private void Quotas(string title, IReadOnlyList<NamedQuota> quotas, DateTimeOffset now)

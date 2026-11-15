@@ -32,11 +32,12 @@ public sealed partial class UsageScanner
 
     public UsageSummary ScanToday() => Scan().Cli;
 
-    public UsageScanResult Scan()
+    public UsageScanResult Scan(ProcessReport? processes = null)
     {
         lock (sync)
         {
             LoadCache();
+            desktopLocation = ClaudeDesktopUsage.Locate(paths, processes ?? ProcessReport.Empty);
             var discovered = DiscoverFiles();
             var filesRead = 0;
             long bytesRead = 0;
@@ -48,6 +49,7 @@ public sealed partial class UsageScanner
                     long read = 0;
                     var changed = item.Source switch
                     {
+                        ClaudeDesktop.Name => ProcessDesktopLedger(item.Path),
                         ZCodeUsage.SourceName => ProcessZCode(item.Path),
                         DshUsage.SourceName => ProcessDsh(item.Path),
                         _ => ProcessFile(item.Path, item.Source, out read)
@@ -79,6 +81,9 @@ public sealed partial class UsageScanner
     private List<DiscoveredFile> DiscoverFiles()
     {
         var result = new List<DiscoveredFile>();
+        try { result.AddRange(ClaudeDesktopUsage.Files(desktopLocation).Select(p => new DiscoveredFile(p, ClaudeDesktop.Name))); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        { desktopLocation = desktopLocation with { Note = "桌面用量目录暂时无法读取" }; }
         AddFiles(result, Path.Combine(paths.ClaudeRoot, "projects"), "Claude");
         AddFiles(result, Path.Combine(paths.CodexRoot, "sessions"), "Codex");
         AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
@@ -151,7 +156,8 @@ public sealed partial class UsageScanner
                         state.Head.Length > 0 && comparableHead != state.HeadPrefix ||
                         stream.Length == state.Size && info.LastWriteTimeUtc.Ticks != state.LastWriteUtcTicks ||
                         source == "Codex" && !state.SessionIdentityRead || source == "API" && state.ApiMetadataVersion < 2 ||
-                        source is "Claude" or "Codex" && state.ProjectMetadataVersion < 1;
+                        source is "Claude" or "Codex" && state.ProjectMetadataVersion < 1 ||
+                        source == "Claude" && state.ProjectMetadataVersion < 2;
         if (rewritten)
         {
             Hydrate(state);
@@ -182,7 +188,7 @@ public sealed partial class UsageScanner
             JsonLineReader.MaxLineBytes, bytes => IsRelevantLine(bytes, source));
         state.SessionIdentityRead = true;
         if (source == "API") state.ApiMetadataVersion = 2;
-        if (source is "Claude" or "Codex") state.ProjectMetadataVersion = 1;
+        if (source is "Claude" or "Codex") state.ProjectMetadataVersion = source == "Claude" ? 2 : 1;
         if (state.Offset >= 64)
         {
             stream.Position = state.Offset - 64;
@@ -254,6 +260,7 @@ public sealed partial class UsageScanner
     private static void ConsumeClaude(JsonElement root, FileState state)
     {
         ReadCwd(root, state);
+        if (root.StringOrEmpty("sessionId") is { Length: > 0 } session) state.SessionId = ClaudeDesktopUsage.Hash(session);
         if (root.StringOrEmpty("type") != "assistant" ||
             !root.TryGetProperty("message", out var message) ||
             !message.TryGetProperty("usage", out var usage)) return;
@@ -276,7 +283,7 @@ public sealed partial class UsageScanner
             : 0;
         state.Records[id] = new(
             id, "Claude", model.Length == 0 ? "?" : model, timestamp.Value,
-            input + read + write, read, write, output, think, Cwd: state.Cwd);
+            input + read + write, read, write, output, think, Cwd: state.Cwd, SessionId: state.SessionId);
     }
 
     private static void ConsumeCodex(JsonElement root, FileState state)
@@ -359,6 +366,7 @@ public sealed partial class UsageScanner
         var start = new DateTimeOffset(DateTime.Today);
         var claudeFiles = CachedFiles("Claude");
         var claude = SourceRecords("Claude", () => MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)));
+        var desktop = DesktopRecords(claude);
         var codexFiles = CachedFiles("Codex");
         var codex = SourceRecords("Codex", () => CodexRecords(codexFiles));
         var piFiles = CachedFiles(PiDesktopUsage.SourceName);
@@ -373,6 +381,11 @@ public sealed partial class UsageScanner
         var api = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
 
         var now = DateTimeOffset.Now;
+        var todayDesktop = desktop.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var desktopSource = SourceSummary(ClaudeDesktop.Name, todayDesktop, desktopLocation.Detected, desktopLocation.Note);
+        if (todayDesktop.Length > 0) desktopSource = desktopSource with { Note = "来自桌面真实用量账本；仅覆盖已记录活动" };
+        if (errors.Any(x => x.StartsWith(ClaudeDesktop.Name + " ", StringComparison.Ordinal)))
+            desktopSource = desktopSource with { Note = "部分桌面账本无法读取；保留已记录真实用量" };
         var todayClaude = claude.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayCodex = codex.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayPi = pi.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
@@ -381,9 +394,10 @@ public sealed partial class UsageScanner
         var todayDsh = dsh.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var buddyDetected = buddyFiles.Length > 0 || Directory.Exists(paths.WorkBuddyRoot) || Directory.Exists(paths.WorkBuddyAiRoot);
         var dshDetected = dshFiles.Length > 0 || Directory.Exists(paths.DshRoot);
-        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).ToArray();
+        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).ToArray();
         var sourceRows = new[]
         {
+            desktopSource,
             SourceSummary("Claude Code", todayClaude, claudeFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary("Codex", todayCodex, codexFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary(PiDesktopUsage.SourceName, todayPi, piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无今日 token 统计"),
@@ -458,9 +472,10 @@ public sealed partial class UsageScanner
         var codexTotal = SourceSummary("Codex", codex.Where(x => x.Timestamp <= now).ToArray(), codexFiles.Length > 0, "本地无 token 统计");
         if (errors.FirstOrDefault(x => x.StartsWith("Codex ", StringComparison.Ordinal)) is { } codexError)
             codexTotal = codexTotal with { State = UsageDataState.ReadFailed, Note = codexError };
-        var statistics = UsageStatistics.Build(claude.Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh), now, apiRecords: api);
+        var statistics = UsageStatistics.Build(desktop.Concat(claude).Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh), now, apiRecords: api);
         return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
-            WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal));
+            WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal),
+            SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop);
     }
 
     private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)
@@ -770,6 +785,7 @@ public sealed partial class UsageScanner
     private sealed class FileState
     {
         public string Source { get; set; } = "";
+        public string UsageScope { get; set; } = "";
         public string Model { get; set; } = "?";
         public string SessionId { get; set; } = "";
         public bool SessionIdentityRead { get; set; }

@@ -11,6 +11,13 @@ public sealed record DesktopTokenDisplay(UsageSourceSummary? Today, UsageSourceS
         string Tokens(long value) => Formatting.Tokens(value, unit);
         var total = Total ?? Today;
         var available = total?.Turns > 0 || Today?.State == UsageDataState.Available;
+        if (Today?.Name == ClaudeDesktop.Name || total?.Name == ClaudeDesktop.Name)
+        {
+            if (!available) return (Today?.Note ?? total?.Note ?? ClaudeDesktopUsage.MissingUsage, "真实 Token 暂不可用");
+            var note = Today?.Note is { Length: > 0 } todayNote ? todayNote : "仅覆盖桌面账本已记录活动，不是完整账号用量";
+            return ($"今日已记录 {Tokens(Today?.TotalTokens ?? 0)} Token · {Today?.Turns ?? 0} 条记录\n输入（含缓存） {Tokens(Today?.ContextTokens ?? 0)} · 输出 {Tokens(Today?.OutputTokens ?? 0)}\n缓存读取 {Tokens(Today?.CacheReadTokens ?? 0)} · 写入 {Tokens(Today?.CacheWriteTokens ?? 0)}\n本地已记录累计 {Tokens(total!.TotalTokens)} Token\n{note}",
+                $"今日已记录 {Tokens(Today?.TotalTokens ?? 0)} Token\n累计 {Tokens(total!.TotalTokens)} Token");
+        }
         var failed = Total?.State == UsageDataState.ReadFailed;
         var detail = available
             ? $"今日 {Today?.Turns ?? 0} 次 · 总 Token {Tokens(Today?.TotalTokens ?? 0)}\n今日上下文 {Tokens(Today?.ContextTokens ?? 0)} · 输出 {Tokens(Today?.OutputTokens ?? 0)}\n今日思考 {Tokens(Today?.ThinkingTokens ?? 0)} · 缓存读取 {Tokens(Today?.CacheReadTokens ?? 0)} · 写入 {Tokens(Today?.CacheWriteTokens ?? 0)}\n本地累计 {total!.Turns} 次 · 总 Token {Tokens(total.TotalTokens)}\n累计上下文 {Tokens(total.ContextTokens)} · 输出 {Tokens(total.OutputTokens)}\n累计思考 {Tokens(total.ThinkingTokens)} · 缓存读取 {Tokens(total.CacheReadTokens)} · 写入 {Tokens(total.CacheWriteTokens)}"
