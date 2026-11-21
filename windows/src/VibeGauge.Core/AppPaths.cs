@@ -16,6 +16,7 @@ public sealed class AppPaths
     public string Home { get; }
     public string DevinRoot { get; }
     public string DevinDatabase => Path.Combine(DevinRoot, "sessions.db");
+    public string DevinStateDatabase => Path.Combine(WindowsRoamingDataRoot, "Devin", "User", "globalStorage", "state.vscdb");
     public string LocalDataRoot { get; }
     public string WindowsLocalDataRoot { get; }
     public string WindowsRoamingDataRoot { get; }

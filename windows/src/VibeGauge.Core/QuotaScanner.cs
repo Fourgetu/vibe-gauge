@@ -16,6 +16,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     private PlatformStatus? ollamaCached;
     private readonly Dictionary<string, CodexFileQuota> codexFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ProviderMetadata> metadataCache = new(StringComparer.Ordinal);
+    private readonly DevinWeeklyQuota devinWeekly = new();
     private IReadOnlyList<NamedQuota> codexExtra = Array.Empty<NamedQuota>();
     private string? codexAccountScope;
     private DateTimeOffset? codexQuotaSince;
@@ -36,7 +37,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
             ReadDesktopUsage(WorkBuddyUsage.SourceName, Directory.Exists(paths.WorkBuddyRoot) ? paths.WorkBuddyRoot : paths.WorkBuddyAiRoot,
                 processes.WorkBuddyProcesses, usage, workBuddyTotal),
             ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal),
-            ReadDesktopUsage(DevinUsage.SourceName, paths.DevinRoot, processes.DevinProcesses, usage, devinTotal)
+            devinWeekly.Apply(paths, ReadDesktopUsage(DevinUsage.SourceName, paths.DevinRoot, processes.DevinProcesses, usage, devinTotal), DateTimeOffset.Now)
         ];
         if (desktopClaude is not null)
         {

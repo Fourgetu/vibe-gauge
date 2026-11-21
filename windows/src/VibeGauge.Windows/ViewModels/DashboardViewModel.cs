@@ -557,7 +557,7 @@ public sealed record PlatformRow(
             _ => "Muted"
         };
         var five = QuotaRow.Create("5H", value.FiveHour, profile);
-        var weekly = QuotaRow.Create("W", value.Weekly, profile);
+        var weekly = QuotaRow.Create(value.Name == DevinUsage.SourceName ? "周额度" : "W", value.Weekly, profile);
         var secondaryFive = QuotaRow.Create(value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} 5H" : "第二池 5H", value.SecondaryFiveHour, secondary: true);
         var secondaryWeekly = QuotaRow.Create(value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} W" : "第二池 W", value.SecondaryWeekly, secondary: true);
         var monthly = QuotaRow.Create("M", value.Monthly, profile);
@@ -567,7 +567,7 @@ public sealed record PlatformRow(
             value.Name, value.Tier.Length == 0 ? "未知" : value.Tier, runtime, session, detail, tone,
             quotas, quotas.Length > 0, quotas.Length == 0,
             value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
-            quotas.Length == 0 || value.AlwaysShowDetail,
+            quotas.Length == 0 || value.AlwaysShowDetail || value.Name == DevinUsage.SourceName,
             desktop && (value.Name != ClaudeDesktop.Name || quotas.Length == 0) || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
                 ? string.Join("\n", detail.Split('\n').Take(2)) : "", ProviderDetails.CanOpen(value));
