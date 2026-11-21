@@ -50,7 +50,8 @@ public sealed partial class UsageScanner
                     var changed = item.Source switch
                     {
                         ClaudeDesktop.Name => ProcessDesktopLedger(item.Path),
-                        ZCodeUsage.SourceName => ProcessZCode(item.Path),
+                        ZCodeUsage.SourceName => ProcessDatabase(item.Path, item.Source, ZCodeUsage.Read),
+                        DevinUsage.SourceName => ProcessDatabase(item.Path, item.Source, DevinUsage.Read),
                         DshUsage.SourceName => ProcessDsh(item.Path),
                         _ => ProcessFile(item.Path, item.Source, out read)
                     };
@@ -89,6 +90,7 @@ public sealed partial class UsageScanner
         AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
         AddFiles(result, paths.PiDesktopSessions, PiDesktopUsage.SourceName);
         if (File.Exists(paths.ZCodeDatabase)) result.Add(new(paths.ZCodeDatabase, ZCodeUsage.SourceName));
+        if (File.Exists(paths.DevinDatabase)) result.Add(new(paths.DevinDatabase, DevinUsage.SourceName));
         AddFiles(result, Path.Combine(paths.WorkBuddyRoot, "projects"), WorkBuddyUsage.SourceName);
         AddFiles(result, Path.Combine(paths.WorkBuddyAiRoot, "projects"), WorkBuddyUsage.SourceName);
         if (Directory.Exists(paths.DshSessions))
@@ -117,15 +119,15 @@ public sealed partial class UsageScanner
         catch { }
     }
 
-    private bool ProcessZCode(string path)
+    private bool ProcessDatabase(string path, string source, Func<string, IReadOnlyList<InteractionRecord>> read)
     {
         var signature = ZCodeUsage.Signature(path);
-        if (!cache.Files.TryGetValue(path, out var state)) state = new FileState { Source = ZCodeUsage.SourceName };
+        if (!cache.Files.TryGetValue(path, out var state)) state = new FileState { Source = source };
         if (state.Head == signature) return false;
         Hydrate(state);
         // Materialize a successful read before touching retained history. Database/WAL
         // deletion or temporary read failures must not erase already observed requests.
-        var records = ZCodeUsage.Read(path);
+        var records = read(path);
         foreach (var record in records) state.Records[record.Id] = record;
         state.Head = ZCodeUsage.Signature(path) == signature ? signature : "";
         cache.Files[path] = state;
@@ -377,6 +379,8 @@ public sealed partial class UsageScanner
         var buddy = SourceRecords(WorkBuddyUsage.SourceName, () => MostRecentPerId(buddyFiles.SelectMany(x => x.Value.Records.Values)));
         var dshFiles = CachedFiles(DshUsage.SourceName);
         var dsh = SourceRecords(DshUsage.SourceName, () => MostRecentPerId(dshFiles.SelectMany(x => x.Value.Records.Values)));
+        var devinFiles = CachedFiles(DevinUsage.SourceName);
+        var devin = SourceRecords(DevinUsage.SourceName, () => MostRecentPerId(devinFiles.SelectMany(x => x.Value.Records.Values)));
         var apiFiles = CachedFiles("API");
         var api = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
 
@@ -394,7 +398,9 @@ public sealed partial class UsageScanner
         var todayDsh = dsh.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var buddyDetected = buddyFiles.Length > 0 || Directory.Exists(paths.WorkBuddyRoot) || Directory.Exists(paths.WorkBuddyAiRoot);
         var dshDetected = dshFiles.Length > 0 || Directory.Exists(paths.DshRoot);
-        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).ToArray();
+        var devinDetected = devinFiles.Length > 0 || Directory.Exists(paths.DevinRoot);
+        var todayDevin = devin.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
+        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).Concat(todayDevin).ToArray();
         var sourceRows = new[]
         {
             desktopSource,
@@ -404,6 +410,7 @@ public sealed partial class UsageScanner
             SourceSummary(ZCodeUsage.SourceName, todayZCode, zcodeFiles.Length > 0 || Directory.Exists(paths.ZCodeRoot), "本地无今日 token 统计"),
             SourceSummary(WorkBuddyUsage.SourceName, todayBuddy, buddyDetected, "本地无今日 token 统计"),
             SourceSummary(DshUsage.SourceName, todayDsh, dshDetected, "本地无今日 token 统计"),
+            SourceSummary(DevinUsage.SourceName, todayDevin, devinDetected, "本地无今日 token 统计"),
             UnsupportedSource("Gemini", Directory.Exists(paths.GeminiRoot))
         };
         var error = string.Join("；", errors);
@@ -472,10 +479,14 @@ public sealed partial class UsageScanner
         var codexTotal = SourceSummary("Codex", codex.Where(x => x.Timestamp <= now).ToArray(), codexFiles.Length > 0, "本地无 token 统计");
         if (errors.FirstOrDefault(x => x.StartsWith("Codex ", StringComparison.Ordinal)) is { } codexError)
             codexTotal = codexTotal with { State = UsageDataState.ReadFailed, Note = codexError };
-        var statistics = UsageStatistics.Build(desktop.Concat(claude).Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh), now, apiRecords: api);
+        var archivedDevin = devin.Where(x => x.Timestamp <= now).ToArray();
+        var devinTotal = SourceSummary(DevinUsage.SourceName, archivedDevin, devinDetected, "本地无 token 统计");
+        if (errors.FirstOrDefault(x => x.StartsWith(DevinUsage.SourceName + " ", StringComparison.Ordinal)) is { } devinError)
+            devinTotal = devinTotal with { State = UsageDataState.ReadFailed, Note = devinError };
+        var statistics = UsageStatistics.Build(desktop.Concat(claude).Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh).Concat(archivedDevin), now, apiRecords: api);
         return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
             WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal),
-            SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop);
+            SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop, WithColdTotal(devinTotal));
     }
 
     private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)

@@ -43,7 +43,7 @@ public sealed class DashboardCoordinator : IDisposable
             if (targets.Count > 0) LastAutoCleanup = system.Clean(targets);
             var usageSnapshot = usage.Scan(windows.Processes);
             var platforms = quotas.Scan(windows.Processes, usageSnapshot.Cli, usageSnapshot.PiDesktopTotal, usageSnapshot.ZCodeTotal,
-                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal, usageSnapshot.ClaudeDesktopTotal);
+                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal, usageSnapshot.ClaudeDesktopTotal, usageSnapshot.DevinTotal);
             var sessionSnapshot = sessions.Scan(DateTimeOffset.Now, usageSnapshot.ClaudeDesktopRecords);
             var adapters = network.Scan();
             return (windows, usageSnapshot, platforms, sessionSnapshot, adapters);

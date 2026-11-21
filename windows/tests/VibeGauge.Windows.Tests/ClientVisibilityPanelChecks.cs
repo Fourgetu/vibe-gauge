@@ -36,8 +36,8 @@ internal static class ClientVisibilityPanelChecks
                 providers, usage, new(UsageDataState.NotDetected, 0, 0, 0, 0, [], ""));
             var apply = typeof(DashboardViewModel).GetMethod("Apply", BindingFlags.Instance | BindingFlags.NonPublic)!;
             apply.Invoke(vm, [snapshot]);
-            Assert.Equal(9, vm.Platforms.Count);
-            Assert.Equal(10, vm.ClientOptions.Count);
+            Assert.Equal(10, vm.Platforms.Count);
+            Assert.Equal(11, vm.ClientOptions.Count);
             Assert.Contains(vm.ClientOptions, x => x.Name == ClaudeDesktop.Name);
             window = new MainWindow(vm, autoHide: false) { Width = 420, Height = 560, Left = -20000, Top = -20000, ShowInTaskbar = false, ShowActivated = false };
             window.Show();
@@ -52,7 +52,8 @@ internal static class ClientVisibilityPanelChecks
                 controls.BringIntoView();
                 Layout(window);
                 var toggles = Descendants<CheckBox>(controls).ToArray();
-                Assert.Equal(10, toggles.Length);
+                Assert.Equal(11, toggles.Length);
+                Assert.Contains(toggles, x => (string)x.Content == "Devin");
                 Assert.All(toggles, x => { Assert.IsType<string>(x.Content); Assert.True(x.ActualWidth > 100); });
                 var toggle = toggles.Single(x => (string)x.Content == "WorkBuddy");
                 toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, false);
@@ -67,7 +68,7 @@ internal static class ClientVisibilityPanelChecks
                 Assert.DoesNotContain(vm.Platforms, x => x.Name == "WorkBuddy");
                 Capture(window, $"system-{(light ? "light" : "dark")}-{width}.png", light);
                 toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-                Assert.Equal(9, vm.Platforms.Count);
+                Assert.Equal(10, vm.Platforms.Count);
                 Assert.Equal("2 个活动", vm.ActiveProviderText);
                 vm.SelectTab(0);
                 Layout(window);
@@ -100,15 +101,17 @@ internal static class ClientVisibilityPanelChecks
                 Assert.Empty(vm.Platforms);
                 foreach (var option in vm.ClientOptions) option.IsVisible = true;
                 Assert.False(vm.HasNoVisibleClients);
-                Assert.Equal(9, vm.Platforms.Count);
+                Assert.Equal(10, vm.Platforms.Count);
                 Assert.Same(sessionSummary, vm.VisibleSessions(sessionSummary));
             }
             vm.ClientOptions.Single(x => x.Name == "DSH Desktop").IsVisible = false;
+            vm.ClientOptions.Single(x => x.Name == "Devin").IsVisible = false;
             using var restored = new DashboardViewModel(new DashboardCoordinator(paths, proxy), new StartupRegistrar(), proxy, new ProxySettings());
             restored.Dispose();
             apply.Invoke(restored, [snapshot]);
             Assert.DoesNotContain(restored.Platforms, x => x.Name == "DSH Desktop");
             Assert.False(restored.ClientOptions.Single(x => x.Name == "DSH Desktop").IsVisible);
+            Assert.DoesNotContain(restored.Platforms, x => x.Name == "Devin");
         }
         finally
         {

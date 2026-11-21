@@ -88,7 +88,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
         clientVisibilitySettings = new(coordinator.Paths.LocalDataRoot);
         hiddenClients = clientVisibilitySettings.Load();
-        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop"]);
+        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop", DevinUsage.SourceName]);
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -344,7 +344,8 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     {
         int? sessions = value.Name switch { "Claude" => activity.ClaudeSessions, ClaudeDesktop.Name => activity.ClaudeDesktopProcesses, "Codex" => activity.CodexSessions,
             "Gemini" => activity.GeminiSessions, "PI-Desktop" => activity.PiDesktopProcesses,
-            "ZCode" => activity.ZCodeProcesses, "WorkBuddy" => activity.WorkBuddyProcesses, "DSH Desktop" => activity.DshProcesses, _ => null };
+            "ZCode" => activity.ZCodeProcesses, "WorkBuddy" => activity.WorkBuddyProcesses, "DSH Desktop" => activity.DshProcesses,
+            DevinUsage.SourceName => activity.DevinProcesses, _ => null };
         return sessions is { } count ? value with { IsRunning = count > 0, Sessions = count } : value;
     }
 
@@ -534,7 +535,7 @@ public sealed record PlatformRow(
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
         var runtime = value.IsRunning ? "运行中" : "未运行";
-        var desktop = value.Name is ClaudeDesktop.Name or PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName;
+        var desktop = value.Name is ClaudeDesktop.Name or PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName or DevinUsage.SourceName;
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";

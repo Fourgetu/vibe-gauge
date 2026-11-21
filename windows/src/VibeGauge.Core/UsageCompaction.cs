@@ -52,7 +52,8 @@ public sealed partial class UsageScanner
             .Concat(PiRecords(CachedFiles(PiDesktopUsage.SourceName)))
             .Concat(MostRecentPerId(CachedFiles(ZCodeUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
             .Concat(MostRecentPerId(CachedFiles(WorkBuddyUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
-            .Concat(MostRecentPerId(CachedFiles(DshUsage.SourceName).SelectMany(x => x.Value.Records.Values)));
+            .Concat(MostRecentPerId(CachedFiles(DshUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
+            .Concat(MostRecentPerId(CachedFiles(DevinUsage.SourceName).SelectMany(x => x.Value.Records.Values)));
         var cold = all.Where(x => x.Timestamp < cutoff).ToArray();
         cache.ColdStatistics = UsageStatistics.Build(cold, now);
         cache.ColdTotals = cold.GroupBy(x => x.Source).ToDictionary(x => x.Key, x => SourceSummary(x.Key, x.ToArray(), true, ""));

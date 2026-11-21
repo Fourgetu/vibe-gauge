@@ -313,6 +313,8 @@ public sealed partial class WindowsSystemScanner
             else if (IsZCode(process)) matched[process.ProcessId] = "zcode";
             else if (IsWorkBuddy(process)) matched[process.ProcessId] = "workbuddy";
             else if (IsDsh(process)) matched[process.ProcessId] = "dsh";
+            else if (Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)
+                .Equals("Devin.exe", StringComparison.OrdinalIgnoreCase)) matched[process.ProcessId] = DevinUsage.SourceName;
         }
         var ollamaRunning = processes.Values.Any(process =>
             IsOllama(process.CommandLine.Length > 0 ? process.CommandLine : process.Name));
@@ -363,7 +365,7 @@ public sealed partial class WindowsSystemScanner
                     "zcode" => "ZCode", "workbuddy" => "WorkBuddy", "dsh" => "DSH Desktop", _ => x.Value };
                 return new ProviderProcess(provider, process.ProcessId, process.StartedAt, process.MemoryMb, process.ExecutablePath,
                     provider == ClaudeDesktop.Name ? ClaudeDataDirectory(x.Key, processes) : "");
-            }).ToArray(), ClaudeDesktopProcesses: roots.Count(x => x.Value == "claude-desktop"));
+            }).ToArray(), ClaudeDesktopProcesses: roots.Count(x => x.Value == "claude-desktop"), DevinProcesses: roots.Count(x => x.Value == DevinUsage.SourceName));
     }
 
     private static bool HasMatchedAncestor(int pid, IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlyDictionary<int, string> matched)

@@ -94,6 +94,7 @@ public static class ProviderDetails
         "Gemini" => [paths.ResolveOwnDataFile("agy-quota.json"), paths.AgyQuota, Path.Combine(paths.GeminiRoot, "antigravity-cli", "settings.json"), Path.Combine(paths.GeminiRoot, "antigravity-cli", "antigravity-oauth-token")],
         PiDesktopUsage.SourceName => [Path.Combine(paths.PiDesktopSessions, "**", "*.jsonl")],
         ZCodeUsage.SourceName => [paths.ZCodeDatabase],
+        DevinUsage.SourceName => [paths.DevinDatabase],
         WorkBuddyUsage.SourceName => [Path.Combine(paths.WorkBuddyRoot, "projects", "**", "*.jsonl"), Path.Combine(paths.WorkBuddyAiRoot, "projects", "**", "*.jsonl")],
         DshUsage.SourceName => [Path.Combine(paths.DshSessions, "**", "session.v4.jsonl[.zstd]")],
         "Ollama" => ["本机只读接口：127.0.0.1:11434/api/ps"],

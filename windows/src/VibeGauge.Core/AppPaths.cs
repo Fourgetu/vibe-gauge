@@ -5,6 +5,8 @@ public sealed class AppPaths
     public AppPaths(string? home = null, string? localAppData = null)
     {
         Home = Path.GetFullPath(home ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        var roaming = home is null ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) : Path.Combine(Home, "AppData", "Roaming");
+        DevinRoot = Path.Combine(roaming, "Devin", "cli");
         LocalDataRoot = Path.GetFullPath(localAppData ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VibeGauge"));
         WindowsLocalDataRoot = home is null ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : Path.Combine(Home, "AppData", "Local");
@@ -12,6 +14,8 @@ public sealed class AppPaths
     }
 
     public string Home { get; }
+    public string DevinRoot { get; }
+    public string DevinDatabase => Path.Combine(DevinRoot, "sessions.db");
     public string LocalDataRoot { get; }
     public string WindowsLocalDataRoot { get; }
     public string WindowsRoamingDataRoot { get; }

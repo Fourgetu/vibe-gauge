@@ -251,7 +251,7 @@ public sealed record UsageScanResult(UsageSummary Cli, ApiUsageSummary Api, Usag
     UsageSourceSummary? PiDesktopTotal = null, UsageSourceSummary? ZCodeTotal = null,
     UsageSourceSummary? WorkBuddyTotal = null, UsageSourceSummary? DshTotal = null,
     IReadOnlyList<PlatformStatus>? Plans = null, UsageSourceSummary? CodexTotal = null, UsageSourceSummary? ClaudeDesktopTotal = null,
-    IReadOnlyList<InteractionRecord>? ClaudeDesktopRecords = null);
+    IReadOnlyList<InteractionRecord>? ClaudeDesktopRecords = null, UsageSourceSummary? DevinTotal = null);
 
 public sealed record UsageScannerDiagnostics(int FilesDiscovered, int FilesRead, long BytesRead);
 
@@ -302,7 +302,7 @@ public sealed record ProcessReport(
     int DshProcesses = 0,
     IReadOnlyList<ProviderProcess>? ProviderProcesses = null,
     IReadOnlyList<LocalRuntime>? LocalRuntimes = null,
-    int ClaudeDesktopProcesses = 0)
+    int ClaudeDesktopProcesses = 0, int DevinProcesses = 0)
 {
     public static ProcessReport Empty { get; } = new(0, 0, 0, 0, false, 0, 0, [], []);
 }

@@ -21,7 +21,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     private DateTimeOffset? codexQuotaSince;
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
-        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null, UsageSourceSummary? claudeDesktopTotal = null)
+        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null, UsageSourceSummary? claudeDesktopTotal = null, UsageSourceSummary? devinTotal = null)
     {
         var desktopClaude = ClaudeDesktop.Read(paths, processes);
         if (claudeLive is not null) desktopClaude = claudeLive.Apply(desktopClaude);
@@ -35,7 +35,8 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
             ReadOllama(processes.OllamaRunning),
             ReadDesktopUsage(WorkBuddyUsage.SourceName, Directory.Exists(paths.WorkBuddyRoot) ? paths.WorkBuddyRoot : paths.WorkBuddyAiRoot,
                 processes.WorkBuddyProcesses, usage, workBuddyTotal),
-            ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal)
+            ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal),
+            ReadDesktopUsage(DevinUsage.SourceName, paths.DevinRoot, processes.DevinProcesses, usage, devinTotal)
         ];
         if (desktopClaude is not null)
         {
