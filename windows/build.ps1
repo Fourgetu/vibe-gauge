@@ -76,7 +76,7 @@ $makensis = @(
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
 if ($makensis) {
-    & $makensis "/DAPP_VERSION=$version" "/DPUBLISH_DIR=$publish" "/DOUTPUT_DIR=$artifacts" (Join-Path $windows 'installer\VibeGauge.nsi')
+    & $makensis '/INPUTCHARSET' 'UTF8' "/DAPP_VERSION=$version" "/DPUBLISH_DIR=$publish" "/DOUTPUT_DIR=$artifacts" (Join-Path $windows 'installer\VibeGauge.nsi')
     if ($LASTEXITCODE -ne 0) { throw "NSIS failed: $LASTEXITCODE" }
     $installer = Join-Path $artifacts "VibeGauge-Setup-v$version.exe"
     $installerHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
