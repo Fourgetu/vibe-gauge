@@ -78,4 +78,38 @@ public sealed class OpenRouterPricesTests : IDisposable
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
+
+    [Theory]
+    [InlineData("gpt-6-astra-medium", "openai/gpt-6-astra")]
+    [InlineData("gpt-6-sol-medium", "openai/gpt-6-sol")]
+    [InlineData("gpt-6-luna-medium", "openai/gpt-6-luna")]
+    [InlineData("gemini-4-carbon-medium", "google/gemini-4-carbon")]
+    [InlineData("kimi-k3-1-pro-max", "moonshotai/kimi-k3.1-pro")]
+    [InlineData("glm-5-3-max", "z-ai/glm-5.3")]
+    [InlineData("claude-sonnet-5-5-medium", "anthropic/claude-sonnet-5.5")]
+    [InlineData("gemini-3-8-flash-medium", "google/gemini-3.8-flash")]
+    [InlineData("claude-fable-5-2-medium", "anthropic/claude-fable-5.2")]
+    [InlineData("claude-fable-5-2-max", "anthropic/claude-fable-5.2")]
+    public void DevinUsesCurrentCanonicalPriceWithoutRenamingOrPricingOtherSources(string id, string canonical)
+    {
+        var table = PriceTable.Parse("""{"_source":"OpenRouter","_match":"exact"}""");
+        table.Rates[canonical] = new(2, 10, .2m, 2.5m);
+        var row = new ModelMix("Devin", id, 1, 1_000_000, 100_000, 200_000, 300_000);
+        var estimate = table.Estimate([row]);
+        Assert.Equal(2.79m, estimate.Amount);
+        Assert.True(estimate.UsesBaseModelRate);
+        Assert.Equal(0, estimate.UnpricedModels);
+        var mixed = table.Estimate([row, row with { Source = "API · Devin" }]);
+        Assert.True(mixed.HasPricedUsage);
+        Assert.Equal(1, mixed.UnpricedModels);
+        Assert.Equal(estimate.Amount, mixed.Amount);
+        Assert.False(table.Estimate([row with { Model = id + "-fast" }]).HasPricedUsage);
+        table.Rates[id] = new(0, 0, 0, 0);
+        var exact = table.Estimate([row]);
+        Assert.False(exact.UsesBaseModelRate);
+        Assert.True(exact.HasPricedUsage);
+        Assert.Equal(0m, exact.Amount);
+        table.Rates.Clear();
+        Assert.Equal(1, table.Estimate([row]).UnpricedModels);
+    }
 }

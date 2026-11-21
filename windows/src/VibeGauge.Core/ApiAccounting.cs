@@ -3,11 +3,12 @@ using System.Text.Json;
 
 namespace VibeGauge.Core;
 
-public sealed record CostEstimate(decimal Amount, string Currency, string AsOf, int UnpricedModels, bool Configured, int UnknownCalls = 0, string Source = "")
+public sealed record CostEstimate(decimal Amount, string Currency, string AsOf, int UnpricedModels, bool Configured, int UnknownCalls = 0, string Source = "",
+    bool UsesBaseModelRate = false, bool HasPricedUsage = false)
 {
     public string Description => !Configured ? "未配置 prices.json · 不估算成本" :
         $"API 等价成本 {Currency} {Amount:N4}" + (UnpricedModels > 0 ? $" · {UnpricedModels} 个模型未定价" : "") +
-        (UnknownCalls > 0 ? $" · {UnknownCalls} 次用量未知" : "") + "（非实际账单）" +
+        (UsesBaseModelRate ? " · 按基础模型估算" : "") + (UnknownCalls > 0 ? $" · {UnknownCalls} 次用量未知" : "") + "（非实际账单）" +
         (Source == "OpenRouter" ? $" · OpenRouter 基础 Token 单价 · {AsOf}" : "");
 }
 
@@ -21,6 +22,20 @@ public sealed class PriceTable
     public string Source { get; private set; } = "";
     public bool ExactMatch { get; private set; }
     private string[] stripSuffixes = [];
+    // Exact Devin picker IDs only: Fast, sidekick, Pro and other routes must not inherit these prices.
+    private static readonly Dictionary<string, string> DevinBaseModels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["gpt-6-astra-medium"] = "openai/gpt-6-astra",
+        ["gpt-6-sol-medium"] = "openai/gpt-6-sol",
+        ["gpt-6-luna-medium"] = "openai/gpt-6-luna",
+        ["gemini-4-carbon-medium"] = "google/gemini-4-carbon",
+        ["kimi-k3-1-pro-max"] = "moonshotai/kimi-k3.1-pro",
+        ["glm-5-3-max"] = "z-ai/glm-5.3",
+        ["claude-sonnet-5-5-medium"] = "anthropic/claude-sonnet-5.5",
+        ["gemini-3-8-flash-medium"] = "google/gemini-3.8-flash",
+        ["claude-fable-5-2-medium"] = "anthropic/claude-fable-5.2",
+        ["claude-fable-5-2-max"] = "anthropic/claude-fable-5.2"
+    };
     public static PriceTable Load(AppPaths paths)
     {
         var file = paths.ResolveOwnDataFile("prices.json");
@@ -49,11 +64,25 @@ public sealed class PriceTable
         return table;
     }
     public decimal? Cost(string model, long context, long output, long read, long write)
+        => Cost("", model, context, output, read, write, out _);
+
+    private decimal? Cost(string source, string model, long context, long output, long read, long write, out bool baseModel)
     {
-        foreach (var suffix in stripSuffixes)
-            if (model.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { model = model[..^suffix.Length]; break; }
-        var rate = ExactMatch ? Rates.GetValueOrDefault(model) : Rates.Where(x => model.StartsWith(x.Key, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(x => x.Key.Length).Select(x => x.Value).FirstOrDefault();
+        baseModel = false;
+        var rate = Rates.GetValueOrDefault(model);
+        if (rate is null && source == DevinUsage.SourceName && DevinBaseModels.TryGetValue(model, out var canonical))
+        {
+            rate = Rates.GetValueOrDefault(canonical);
+            if (rate is null && Source != "OpenRouter") rate = Rates.GetValueOrDefault(canonical[(canonical.IndexOf('/') + 1)..]);
+            baseModel = rate is not null;
+        }
+        if (rate is null)
+        {
+            foreach (var suffix in stripSuffixes)
+                if (model.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { model = model[..^suffix.Length]; break; }
+            rate = ExactMatch ? Rates.GetValueOrDefault(model) : Rates.Where(x => model.StartsWith(x.Key, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.Key.Length).Select(x => x.Value).FirstOrDefault();
+        }
         try { return rate is null ? null : (Math.Max(0m, (decimal)context - read - write) * rate.Input + (decimal)read * rate.CacheRead +
             (decimal)write * rate.CacheWrite + (decimal)output * rate.Output) / 1_000_000m; }
         catch (OverflowException) { return null; }
@@ -61,11 +90,13 @@ public sealed class PriceTable
     public CostEstimate Estimate(IEnumerable<ModelMix> models, int unknownCalls = 0)
     {
         decimal sum = 0;
+        bool usesBase = false, hasPriced = false;
         var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in models)
-            if (Cost(m.Model, m.Context, m.Output, m.CacheRead, m.CacheWrite) is { } cost) sum += cost;
+            if (Cost(m.Source, m.Model, m.Context, m.Output, m.CacheRead, m.CacheWrite, out var baseModel) is { } cost)
+            { sum += cost; usesBase |= baseModel; hasPriced = true; }
             else missing.Add(m.Model);
-        return new(sum, Currency, AsOf, missing.Count, Rates.Count > 0, unknownCalls, Source);
+        return new(sum, Currency, AsOf, missing.Count, Rates.Count > 0, unknownCalls, Source, usesBase, hasPriced);
     }
 }
 

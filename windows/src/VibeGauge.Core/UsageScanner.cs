@@ -434,7 +434,7 @@ public sealed partial class UsageScanner
             BuildApiRange("7d", "7D", api.Where(x => x.Timestamp >= DateTimeOffset.Now.AddDays(-7)).ToArray()),
             BuildApiRange("30d", "30D", api.Where(x => x.Timestamp >= DateTimeOffset.Now.AddDays(-30)).ToArray()),
             BuildApiRange("all", "All", api)
-        }.Select(r => r with { Cost = prices.Estimate(r.Models.Select(m => new ModelMix(m.Provider, m.Model, m.Calls,
+        }.Select(r => r with { Cost = prices.Estimate(r.Models.Select(m => new ModelMix("API · " + m.Provider, m.Model, m.Calls,
             m.ContextTokens, m.OutputTokens, m.CacheReadTokens, m.CacheWriteTokens, m.ThinkingTokens)), r.UnknownUsage) }).ToArray();
         var providerRows = ranges[0].Providers;
         var apiState = errors.Any(x => x.StartsWith("API ", StringComparison.Ordinal)) && apiFiles.Length > 0 ? UsageDataState.ReadFailed :

@@ -24,6 +24,7 @@
   "总 Token": "Total tokens",
   "API 等价成本": "API-equivalent cost",
   "OpenRouter 基础 Token 单价": "OpenRouter base token rates",
+  "按基础模型估算": "Estimated using base model rates",
   "使用 / 更新 OpenRouter 价格": "Use / update OpenRouter prices",
   "正在获取 OpenRouter 公开价格…": "Fetching public OpenRouter prices…",
   "已应用 OpenRouter 价格：{0} 个模型": "OpenRouter prices applied: {0} models",

@@ -15,7 +15,7 @@ public sealed partial class StatisticsPanel
         var grid = new Wpf.Primitives.UniformGrid { Name = "StatsMetrics", Columns = 2, Rows = 2, Margin = new Thickness(-4, 0, -4, 0) };
         var cost = statistics.Prices?.Estimate(period.Models);
         var invalidPrices = statistics.Prices?.Error.Length > 0;
-        var allUnpriced = period.Models.Count > 0 && cost?.UnpricedModels == period.Models.Select(x => x.Model).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var allUnpriced = period.Models.Count > 0 && cost is { HasPricedUsage: false };
         var costValue = invalidPrices ? "价格表无效" : cost is not { Configured: true } ? "未配置价目表"
             : allUnpriced ? "未定价" : $"{cost.Amount:N2} {cost.Currency}";
         var costDetail = cost is { Configured: true, UnpricedModels: > 0 } ? $"{cost.UnpricedModels} 个模型未定价" : "仅按本地价目表计算";
@@ -166,11 +166,13 @@ public sealed partial class StatisticsPanel
             var estimate = statistics.Prices?.Estimate(models);
             var costText = statistics.Prices?.Error.Length > 0 ? "价格表无效"
                 : estimate is not { Configured: true } ? "未配置价目表"
-                : estimate.UnpricedModels == models.Select(x => x.Model).Distinct(StringComparer.OrdinalIgnoreCase).Count() ? "未定价"
+                : !estimate.HasPricedUsage ? "未定价"
                 : $"{estimate.Amount:N2} {estimate.Currency}";
             var cost = InsightUi.Text("API 等价成本 · " + costText);
             cost.Name = "StatsAgentCost"; cost.ToolTip = statistics.Prices?.Error.Length > 0 ? statistics.Prices.Error : estimate?.Description;
             content.Children.Add(cost);
+            if (estimate is { UsesBaseModelRate: true })
+                content.Children.Add(InsightUi.Text("按基础模型估算"));
             if (estimate is { Configured: true, UnpricedModels: > 0 })
                 content.Children.Add(InsightUi.Text($"{estimate.UnpricedModels} 个模型未定价"));
             section.Children.Add(SectionCard(content, "StatsAgentCard"));
