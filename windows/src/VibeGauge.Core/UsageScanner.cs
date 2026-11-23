@@ -51,6 +51,7 @@ public sealed partial class UsageScanner
                     {
                         ClaudeDesktop.Name => ProcessDesktopLedger(item.Path),
                         ZCodeUsage.SourceName => ProcessDatabase(item.Path, item.Source, ZCodeUsage.Read),
+                        AntigravityUsage.SourceName => ProcessDatabase(item.Path, item.Source, AntigravityUsage.Read),
                         DevinUsage.SourceName => ProcessDatabase(item.Path, item.Source, DevinUsage.Read),
                         DshUsage.SourceName => ProcessDsh(item.Path),
                         _ => ProcessFile(item.Path, item.Source, out read)
@@ -90,6 +91,8 @@ public sealed partial class UsageScanner
         AddFiles(result, Path.Combine(paths.CodexRoot, "archived_sessions"), "Codex");
         AddFiles(result, paths.PiDesktopSessions, PiDesktopUsage.SourceName);
         if (File.Exists(paths.ZCodeDatabase)) result.Add(new(paths.ZCodeDatabase, ZCodeUsage.SourceName));
+        if (Directory.Exists(paths.AntigravityConversations))
+            result.AddRange(Directory.GetFiles(paths.AntigravityConversations, "*.db").Select(p => new DiscoveredFile(p, AntigravityUsage.SourceName)));
         if (File.Exists(paths.DevinDatabase)) result.Add(new(paths.DevinDatabase, DevinUsage.SourceName));
         AddFiles(result, Path.Combine(paths.WorkBuddyRoot, "projects"), WorkBuddyUsage.SourceName);
         AddFiles(result, Path.Combine(paths.WorkBuddyAiRoot, "projects"), WorkBuddyUsage.SourceName);
@@ -129,6 +132,7 @@ public sealed partial class UsageScanner
         // deletion or temporary read failures must not erase already observed requests.
         var records = read(path);
         foreach (var record in records) state.Records[record.Id] = record;
+        if (source == AntigravityUsage.SourceName) state.AntigravityContextIncludesCache = true;
         state.Head = ZCodeUsage.Signature(path) == signature ? signature : "";
         cache.Files[path] = state;
         return true;
@@ -379,6 +383,11 @@ public sealed partial class UsageScanner
         var buddy = SourceRecords(WorkBuddyUsage.SourceName, () => MostRecentPerId(buddyFiles.SelectMany(x => x.Value.Records.Values)));
         var dshFiles = CachedFiles(DshUsage.SourceName);
         var dsh = SourceRecords(DshUsage.SourceName, () => MostRecentPerId(dshFiles.SelectMany(x => x.Value.Records.Values)));
+        var agFiles = CachedFiles(AntigravityUsage.SourceName);
+        // Each desktop database is one conversation. This also supplies IDs for older cached ledgers.
+        var ag = SourceRecords(AntigravityUsage.SourceName, () => MostRecentPerId(agFiles.SelectMany(x =>
+            x.Value.Records.Values.Select(r => r with { SessionId = Path.GetFileNameWithoutExtension(x.Key) }))));
+        var agDetected = agFiles.Length > 0 || Directory.Exists(paths.AntigravityConversations);
         var devinFiles = CachedFiles(DevinUsage.SourceName);
         var devin = SourceRecords(DevinUsage.SourceName, () => MostRecentPerId(devinFiles.SelectMany(x => x.Value.Records.Values)));
         var apiFiles = CachedFiles("API");
@@ -399,8 +408,9 @@ public sealed partial class UsageScanner
         var buddyDetected = buddyFiles.Length > 0 || Directory.Exists(paths.WorkBuddyRoot) || Directory.Exists(paths.WorkBuddyAiRoot);
         var dshDetected = dshFiles.Length > 0 || Directory.Exists(paths.DshRoot);
         var devinDetected = devinFiles.Length > 0 || Directory.Exists(paths.DevinRoot);
+        var todayAg = ag.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayDevin = devin.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
-        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).Concat(todayDevin).ToArray();
+        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).Concat(todayDevin).Concat(todayAg).ToArray();
         var sourceRows = new[]
         {
             desktopSource,
@@ -411,6 +421,7 @@ public sealed partial class UsageScanner
             SourceSummary(WorkBuddyUsage.SourceName, todayBuddy, buddyDetected, "本地无今日 token 统计"),
             SourceSummary(DshUsage.SourceName, todayDsh, dshDetected, "本地无今日 token 统计"),
             SourceSummary(DevinUsage.SourceName, todayDevin, devinDetected, "本地无今日 token 统计"),
+            SourceSummary(AntigravityUsage.SourceName, todayAg, agDetected, "本地无今日 token 统计"),
             UnsupportedSource("Gemini", Directory.Exists(paths.GeminiRoot))
         };
         var error = string.Join("；", errors);
@@ -479,14 +490,18 @@ public sealed partial class UsageScanner
         var codexTotal = SourceSummary("Codex", codex.Where(x => x.Timestamp <= now).ToArray(), codexFiles.Length > 0, "本地无 token 统计");
         if (errors.FirstOrDefault(x => x.StartsWith("Codex ", StringComparison.Ordinal)) is { } codexError)
             codexTotal = codexTotal with { State = UsageDataState.ReadFailed, Note = codexError };
+        var archivedAg = ag.Where(x => x.Timestamp <= now).ToArray();
+        var agTotal = SourceSummary(AntigravityUsage.SourceName, archivedAg, agDetected, "本地无 token 统计");
+        if (errors.FirstOrDefault(x => x.StartsWith(AntigravityUsage.SourceName + " ", StringComparison.Ordinal)) is { } agError)
+            agTotal = agTotal with { State = UsageDataState.ReadFailed, Note = agError };
         var archivedDevin = devin.Where(x => x.Timestamp <= now).ToArray();
         var devinTotal = SourceSummary(DevinUsage.SourceName, archivedDevin, devinDetected, "本地无 token 统计");
         if (errors.FirstOrDefault(x => x.StartsWith(DevinUsage.SourceName + " ", StringComparison.Ordinal)) is { } devinError)
             devinTotal = devinTotal with { State = UsageDataState.ReadFailed, Note = devinError };
-        var statistics = UsageStatistics.Build(desktop.Concat(claude).Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh).Concat(archivedDevin), now, apiRecords: api);
+        var statistics = UsageStatistics.Build(desktop.Concat(claude).Concat(codex).Concat(archivedPi).Concat(archivedZCode).Concat(archivedBuddy).Concat(archivedDsh).Concat(archivedDevin).Concat(archivedAg), now, apiRecords: api);
         return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
             WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal),
-            SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop, WithColdTotal(devinTotal));
+            SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop, WithColdTotal(devinTotal), WithColdTotal(agTotal), ag);
     }
 
     private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)
@@ -740,6 +755,16 @@ public sealed partial class UsageScanner
                 if (cache.Version is not (1 or ScannerCache.CurrentVersion)) throw new InvalidDataException("Unsupported usage ledger version");
                 cacheDirty = inputPath != cachePath || cache.Version != ScannerCache.CurrentVersion;
                 cache.Version = ScannerCache.CurrentVersion;
+                foreach (var state in cache.Files.Values.Where(s => s.Source == AntigravityUsage.SourceName && !s.AntigravityContextIncludesCache))
+                {
+                    // Retained rows may be the only copy after a conversation is deleted.
+                    Hydrate(state);
+                    foreach (var (id, row) in state.Records.ToArray())
+                        state.Records[id] = row with { ContextTokens = AntigravityUsage.ContextTokens(row.ContextTokens, row.CacheReadTokens, row.CacheWriteTokens) };
+                    state.AntigravityContextIncludesCache = true;
+                    state.Head = ""; // Also re-read existing databases for previously skipped cache-only rows.
+                    cacheDirty = true;
+                }
                 ShareRetainedStrings();
             }
         }
@@ -802,6 +827,8 @@ public sealed partial class UsageScanner
         public bool SessionIdentityRead { get; set; }
         public int ApiMetadataVersion { get; set; }
         public int ProjectMetadataVersion { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+        public bool AntigravityContextIncludesCache { get; set; }
         public string Cwd { get; set; } = "";
         [System.Text.Json.Serialization.JsonIgnore] public Dictionary<string, Queue<string>>? ReplayMetadata { get; set; }
         public long Size { get; set; }

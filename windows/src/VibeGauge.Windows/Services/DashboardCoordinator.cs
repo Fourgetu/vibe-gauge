@@ -1,3 +1,4 @@
+using System.IO;
 using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
@@ -6,6 +7,7 @@ public sealed class DashboardCoordinator : IDisposable
 {
     private readonly WindowsSystemScanner system = new();
     private readonly QuotaScanner quotas;
+    private readonly AntigravityQuotaRefresh antigravity;
     private readonly UsageScanner usage;
     private readonly ProxyManager? proxy;
     private readonly QuotaSampler sampler;
@@ -23,6 +25,7 @@ public sealed class DashboardCoordinator : IDisposable
         paths ??= new AppPaths();
         Paths = paths;
         quotas = new(paths, new CodexAppServerQuotaClient(paths), new ClaudeDesktopQuotaClient());
+        antigravity = new(new AntigravityQuotaClient(paths).ReadAsync);
         usage = new(paths);
         sampler = new(paths);
         sessions = new(paths);
@@ -43,8 +46,11 @@ public sealed class DashboardCoordinator : IDisposable
             if (targets.Count > 0) LastAutoCleanup = system.Clean(targets);
             var usageSnapshot = usage.Scan(windows.Processes);
             var platforms = quotas.Scan(windows.Processes, usageSnapshot.Cli, usageSnapshot.PiDesktopTotal, usageSnapshot.ZCodeTotal,
-                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal, usageSnapshot.ClaudeDesktopTotal, usageSnapshot.DevinTotal);
-            var sessionSnapshot = sessions.Scan(DateTimeOffset.Now, usageSnapshot.ClaudeDesktopRecords);
+                usageSnapshot.WorkBuddyTotal, usageSnapshot.DshTotal, usageSnapshot.CodexTotal, usageSnapshot.ClaudeDesktopTotal, usageSnapshot.DevinTotal, usageSnapshot.AntigravityTotal);
+            if (windows.Processes.AntigravityProcesses > 0 || Directory.Exists(Paths.AntigravityConversations) ||
+                File.Exists(Path.Combine(Paths.WindowsLocalDataRoot, "Programs", "antigravity", "Antigravity.exe")))
+                platforms = platforms.Select(p => p.Name == AntigravityUsage.SourceName ? antigravity.Apply(p) : p).ToArray();
+            var sessionSnapshot = sessions.Scan(DateTimeOffset.Now, usageSnapshot.ClaudeDesktopRecords, usageSnapshot.AntigravityRecords);
             var adapters = network.Scan();
             return (windows, usageSnapshot, platforms, sessionSnapshot, adapters);
         });
@@ -69,8 +75,8 @@ public sealed class DashboardCoordinator : IDisposable
         new LightweightSnapshot(activity ? system.ScanActivity() : null, rates ? network.Scan() : null));
 
     public Task<CleanupResult> CleanAsync(IReadOnlyList<OrphanProcess> targets) => Task.Run(() => system.Clean(targets));
-    public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateAccountQuotas(); }
-    public void Dispose() { quotas.Dispose(); official.Dispose(); }
+    public void InvalidateOfficial() { official.Invalidate(); quotas.InvalidateAccountQuotas(); antigravity.Invalidate(); }
+    public void Dispose() { quotas.Dispose(); antigravity.Dispose(); official.Dispose(); }
     public bool EnsureDurableHistory()
     {
         var result = usage.Scan();

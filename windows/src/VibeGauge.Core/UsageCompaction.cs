@@ -53,6 +53,7 @@ public sealed partial class UsageScanner
             .Concat(MostRecentPerId(CachedFiles(ZCodeUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
             .Concat(MostRecentPerId(CachedFiles(WorkBuddyUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
             .Concat(MostRecentPerId(CachedFiles(DshUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
+            .Concat(MostRecentPerId(CachedFiles(AntigravityUsage.SourceName).SelectMany(x => x.Value.Records.Values)))
             .Concat(MostRecentPerId(CachedFiles(DevinUsage.SourceName).SelectMany(x => x.Value.Records.Values)));
         var cold = all.Where(x => x.Timestamp < cutoff).ToArray();
         cache.ColdStatistics = UsageStatistics.Build(cold, now);

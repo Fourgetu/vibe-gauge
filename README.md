@@ -21,12 +21,12 @@
 
 ## 下载与安装
 
-当前正式版：**v1.6.13**。
+当前正式版：**v1.6.14**。
 
 | 下载方式 | 文件与用途 |
 | --- | --- |
-| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.13/VibeGauge-Setup-v1.6.13.exe) | 当前用户安装包，适合日常使用 |
-| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.13/VibeGauge-Windows-x64-v1.6.13.zip) | 解压后运行，适合便携使用 |
+| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.14/VibeGauge-Setup-v1.6.14.exe) | 当前用户安装包，适合日常使用 |
+| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.14/VibeGauge-Windows-x64-v1.6.14.zip) | 解压后运行，适合便携使用 |
 | [正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/latest) | 更新说明、全部附件及 SHA-256 校验文件 |
 
 安装版和免安装版均自带运行时，**使用时无需另装 .NET 或 Python**。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
@@ -119,6 +119,7 @@ Claude / Gemini 桥接需要主动启用；修改配置前会备份，可在设�
 | WorkBuddy / WorkBuddy AI | 本地会话日志用量、去重后的调用与历史统计 |
 | DSH Desktop | 支持普通及受支持的压缩会话日志，按有效结算记录统计用量 |
 | Devin | 本机回复去重后统计今日、累计和每日模型 Token，未落盘的云端用量不计入。另从当前登录账号的客户端缓存读取周额度已用比例和重置时间，不用 Token 数推算额度。 |
+| Antigravity | 从本地会话读取 Token 用量和近期活动；通过已登录的官方 agy CLI 在后台查询套餐及可用的 5 小时、每周额度。 |
 
 这些客户端会纳入整体用量、模型和历史统计，但不会凭 Token 日志虚构订阅额度或余额。请求次数也不直接等同于会话数。
 
@@ -278,7 +279,7 @@ Windows 主程序、核心解析和代理代码位于 `windows/src`，自动化�
 
 | 主题 | 文档 |
 | --- | --- |
-| 当前正式版 | [v1.6.13 更新说明](docs/releases/v1.6.13.md) |
+| 当前正式版 | [v1.6.14 更新说明](docs/releases/v1.6.14.md) |
 | Codex Proxy RS | [配置、统计范围与排查](docs/windows-codex-proxy-rs.md) |
 | 软路由与控制器密钥 | [控制器接入说明](docs/windows-router-controller-2026-09-30.md) |
 | 统计与独立智能体用量 | [统计页说明](docs/windows-statistics-agents-2026-09-30.md) |

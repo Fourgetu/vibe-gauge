@@ -88,7 +88,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
         clientVisibilitySettings = new(coordinator.Paths.LocalDataRoot);
         hiddenClients = clientVisibilitySettings.Load();
-        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop", DevinUsage.SourceName]);
+        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop", DevinUsage.SourceName, AntigravityUsage.SourceName]);
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -345,7 +345,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         int? sessions = value.Name switch { "Claude" => activity.ClaudeSessions, ClaudeDesktop.Name => activity.ClaudeDesktopProcesses, "Codex" => activity.CodexSessions,
             "Gemini" => activity.GeminiSessions, "PI-Desktop" => activity.PiDesktopProcesses,
             "ZCode" => activity.ZCodeProcesses, "WorkBuddy" => activity.WorkBuddyProcesses, "DSH Desktop" => activity.DshProcesses,
-            DevinUsage.SourceName => activity.DevinProcesses, _ => null };
+            AntigravityUsage.SourceName => activity.AntigravityProcesses, DevinUsage.SourceName => activity.DevinProcesses, _ => null };
         return sessions is { } count ? value with { IsRunning = count > 0, Sessions = count } : value;
     }
 
@@ -465,14 +465,15 @@ public sealed record QuotaRow(string Label, double Percent, string PercentText, 
     string TrustText, string ForecastText, bool ForecastWarning = false, bool Secondary = false)
 {
     public string Tooltip => $"{Label} · {TrustText} · {ResetText}\n{ForecastText}";
-    public static QuotaRow? Create(string label, QuotaWindow? window, ActivityProfile? profile = null, bool secondary = false)
+    public static QuotaRow? Create(string label, QuotaWindow? window, ActivityProfile? profile = null, bool secondary = false, bool remaining = false)
     {
         if (window is null) return null;
         var percent = window.EffectivePercent(DateTimeOffset.Now);
         var now = DateTimeOffset.Now;
         var trust = window.Trust(now);
         var burn = QuotaForecast.Calculate(window, now, profile);
-        return new(label, percent, trust == "等待新回报" ? "—" : $"{percent}%",
+        var shown = remaining ? 100 - percent : percent;
+        return new(label, shown, trust == "等待新回报" ? "—" : remaining ? $"余 {shown}%" : $"{shown}%",
             window.ResetDescription(now),
             trust is "可能过期" or "等待新回报" ? "Muted" : ToneFor(percent), trust,
             burn is null ? "" : $"预计重置前 {burn.ProjectedPercent}% · {burn.Basis}", burn?.ProjectedPercent >= 100, secondary);
@@ -531,11 +532,13 @@ public sealed record PlatformRow(
         {
             var display = desktopTokens.Format(unit);
             value = value with { Detail = (value.Name == ClaudeDesktop.Name ? value.Detail + "\n" : "") + display.Detail + (value.Name == "Codex" ? "\n本地 Codex 日志统计，包含账号和 API 模式历史；不代表 API 账单。" : ""), CompactDetail = display.Compact };
+            if (value.Name == AntigravityUsage.SourceName && value.Metadata?.Rows.FirstOrDefault(x => x.Label == "额度来源") is { } source)
+                value = value with { Detail = value.Detail + "\n" + source.Value };
         }
         else if (value.ReportedTokens is { HasValues: true } totals)
             value = value with { CompactDetail = value.CompactDetail.Split('\n')[0] + "\n" + totals.Format(unit) };
         var runtime = value.IsRunning ? "运行中" : "未运行";
-        var desktop = value.Name is ClaudeDesktop.Name or PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName or DevinUsage.SourceName;
+        var desktop = value.Name is ClaudeDesktop.Name or PiDesktopUsage.SourceName or ZCodeUsage.SourceName or WorkBuddyUsage.SourceName or DshUsage.SourceName or DevinUsage.SourceName or AntigravityUsage.SourceName;
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
@@ -556,10 +559,11 @@ public sealed record PlatformRow(
             ProviderDataState.Available => "Good",
             _ => "Muted"
         };
-        var five = QuotaRow.Create("5H", value.FiveHour, profile);
-        var weekly = QuotaRow.Create(value.Name == DevinUsage.SourceName ? "周额度" : "W", value.Weekly, profile);
-        var secondaryFive = QuotaRow.Create(value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} 5H" : "第二池 5H", value.SecondaryFiveHour, secondary: true);
-        var secondaryWeekly = QuotaRow.Create(value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} W" : "第二池 W", value.SecondaryWeekly, secondary: true);
+        var ag = value.Name == AntigravityUsage.SourceName;
+        var five = QuotaRow.Create(ag ? "Gemini 5H" : "5H", value.FiveHour, profile, remaining: ag);
+        var weekly = QuotaRow.Create(ag ? "Gemini 周" : value.Name == DevinUsage.SourceName ? "周额度" : "W", value.Weekly, profile, remaining: ag);
+        var secondaryFive = QuotaRow.Create(value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} 5H" : "第二池 5H", value.SecondaryFiveHour, secondary: true, remaining: ag);
+        var secondaryWeekly = QuotaRow.Create(ag ? "Claude/GPT 周" : value.SecondaryPoolName.Length > 0 ? $"{value.SecondaryPoolName} W" : "第二池 W", value.SecondaryWeekly, secondary: true, remaining: ag);
         var monthly = QuotaRow.Create("M", value.Monthly, profile);
         var daily = QuotaRow.Create("D", value.Daily, profile);
         var quotas = new[] { five, daily, weekly, secondaryFive, secondaryWeekly, monthly }.Where(x => x is not null).Select(x => x!).ToArray();
@@ -567,7 +571,7 @@ public sealed record PlatformRow(
             value.Name, value.Tier.Length == 0 ? "未知" : value.Tier, runtime, session, detail, tone,
             quotas, quotas.Length > 0, quotas.Length == 0,
             value.Name != "Gemini" && (value.AlwaysShowDetail || value.Name.Length > 14 || value.Monthly is not null || value.SecondaryFiveHour is not null),
-            quotas.Length == 0 || value.AlwaysShowDetail || value.Name == DevinUsage.SourceName,
+            quotas.Length == 0 || value.AlwaysShowDetail || value.Name == DevinUsage.SourceName || ag,
             desktop && (value.Name != ClaudeDesktop.Name || quotas.Length == 0) || value.DesktopTokens is not null || value.AlwaysShowDetail || value.Name == "Gemini",
             value.CompactDetail.Length > 0 ? value.CompactDetail : value.AlwaysShowDetail
                 ? string.Join("\n", detail.Split('\n').Take(2)) : "", ProviderDetails.CanOpen(value));

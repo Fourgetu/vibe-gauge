@@ -22,7 +22,7 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
     private DateTimeOffset? codexQuotaSince;
 
     public IReadOnlyList<PlatformStatus> Scan(ProcessReport processes, UsageSummary? usage = null, UsageSourceSummary? piDesktopTotal = null,
-        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null, UsageSourceSummary? claudeDesktopTotal = null, UsageSourceSummary? devinTotal = null)
+        UsageSourceSummary? zcodeTotal = null, UsageSourceSummary? workBuddyTotal = null, UsageSourceSummary? dshTotal = null, UsageSourceSummary? codexTotal = null, UsageSourceSummary? claudeDesktopTotal = null, UsageSourceSummary? devinTotal = null, UsageSourceSummary? antigravityTotal = null)
     {
         var desktopClaude = ClaudeDesktop.Read(paths, processes);
         if (claudeLive is not null) desktopClaude = claudeLive.Apply(desktopClaude);
@@ -37,7 +37,8 @@ public sealed class QuotaScanner(AppPaths paths, ICodexQuotaClient? codexClient 
             ReadDesktopUsage(WorkBuddyUsage.SourceName, Directory.Exists(paths.WorkBuddyRoot) ? paths.WorkBuddyRoot : paths.WorkBuddyAiRoot,
                 processes.WorkBuddyProcesses, usage, workBuddyTotal),
             ReadDesktopUsage(DshUsage.SourceName, paths.DshRoot, processes.DshProcesses, usage, dshTotal),
-            devinWeekly.Apply(paths, ReadDesktopUsage(DevinUsage.SourceName, paths.DevinRoot, processes.DevinProcesses, usage, devinTotal), DateTimeOffset.Now)
+            devinWeekly.Apply(paths, ReadDesktopUsage(DevinUsage.SourceName, paths.DevinRoot, processes.DevinProcesses, usage, devinTotal), DateTimeOffset.Now),
+            ReadDesktopUsage(AntigravityUsage.SourceName, paths.AntigravityConversations, processes.AntigravityProcesses, usage, antigravityTotal)
         ];
         if (desktopClaude is not null)
         {

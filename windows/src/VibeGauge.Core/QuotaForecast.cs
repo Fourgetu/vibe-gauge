@@ -129,7 +129,8 @@ public sealed class QuotaSampler(AppPaths paths)
                 RecentSpanMinutes = (int)(latest.At - oldest.At).TotalMinutes
             };
         }
-        var result = platforms.Select(p => p with
+        // agy /usage does not identify the account; never merge its history across logins.
+        var result = platforms.Select(p => p.Name == AntigravityUsage.SourceName ? p : p with
         {
             FiveHour = Fill(p.FiveHour, p.QuotaHistoryKey + "|5h"),
             Weekly = Fill(p.Weekly, p.QuotaHistoryKey + "|w"),

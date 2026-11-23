@@ -346,8 +346,9 @@ public sealed class SessionsPanel : Wpf.UserControl
             row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
             var label = new Wpf.StackPanel();
             var line = new Wpf.TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 11.5 };
-            line.Inlines.Add(new System.Windows.Documents.Run(ProjectName(session.Directory)) { FontWeight = FontWeights.SemiBold });
-            line.Inlines.Add(new System.Windows.Documents.Run($"  {session.Tool} · {Formatting.ModelDisplayName(session.Model)}") { Foreground = Brush("TextSecondaryBrush") });
+            line.Inlines.Add(new System.Windows.Documents.Run(session.Tool == AntigravityUsage.SourceName ? session.Directory : ProjectName(session.Directory)) { FontWeight = FontWeights.SemiBold });
+            var source = session.Model.Length > 0 ? $"{session.Tool} · {Formatting.ModelDisplayName(session.Model)}" : session.Tool;
+            line.Inlines.Add(new System.Windows.Documents.Run("  " + source) { Foreground = Brush("TextSecondaryBrush") });
             label.Children.Add(line);
             if (session.Compactions > 0) label.Children.Add(InsightUi.Text($"今日压缩 {session.Compactions} 次"));
             row.Children.Add(label);

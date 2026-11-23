@@ -139,6 +139,22 @@ Two more sources feed the same cards, refreshed every 5 minutes on a background 
 
 A CLI result replaces the local estimate on every card for that plan (Volcengine: provider `火山方舟 Coding`; Alibaba: host `coding.dashscope…`) and creates a subscription card if there is none; the card shows "Official CLI · <bin>". Per-model pools from `plans.json` are dropped then, because the official figure is for the whole plan. Tencent Cloud personal plans have no official usage interface and are not supported.
 
+## Antigravity desktop quotas on Windows
+
+With the desktop client detected, VibeGauge samples the official CLI every
+three minutes. A temporary, hidden agy console emits its status line using
+a per-process settings override. Only the explicit `plan_tier` and parsed
+quota windows go through a current-user pipe; normal CLI settings are not
+changed. If unavailable, VibeGauge uses `agy --print /usage --output-format json`
+and hides the tier badge. Neither path sends a model prompt or requires the
+Models page. The card displays **remaining**, not used, percentages from
+the `gemini-5h`, `gemini-weekly`, `3p-5h`, and `3p-weekly` buckets.
+Refresh manually after switching accounts. The report identifies no user:
+the quotas are for the active **CLI login**; local desktop token totals
+come from the conversation databases independently. Missing or expired
+windows are omitted, not interpreted as a fresh 100%. This reader neither
+installs a statusline bridge nor writes a quota history across logins.
+
 ## Statusline quota files
 
 Claude Code and the Antigravity CLI (`agy`) pass their official quota to the statusline command on stdin. The bridge (`vibegauge-statusline.py claude|agy`) saves it and then runs your original statusline command with the same stdin.

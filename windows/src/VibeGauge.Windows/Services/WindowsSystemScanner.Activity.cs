@@ -13,7 +13,7 @@ public sealed partial class WindowsSystemScanner
     {
         var command = value.CommandLine.Length > 0 ? value.CommandLine : value.Name;
         return IsClaude(command) || IsCodex(command) || IsGemini(command) || IsOllama(command) ||
-            IsPiDesktop(value) || IsZCode(value) || IsWorkBuddy(value) || IsDsh(value);
+            IsPiDesktop(value) || IsZCode(value) || IsWorkBuddy(value) || IsDsh(value) || IsAntigravity(value);
     }
 
     // Toolhelp provides current PIDs and ancestry without WMI, services, tasks or logs.

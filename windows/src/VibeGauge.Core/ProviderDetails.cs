@@ -17,8 +17,9 @@ public static class ProviderDetails
 
     public static IEnumerable<NamedQuota> Windows(PlatformStatus p)
     {
-        if (p.FiveHour is { } five) yield return new("5 小时窗口", five);
-        if (p.Weekly is { } week) yield return new("7 天窗口", week);
+        var primary = p.Name == AntigravityUsage.SourceName ? "Gemini · " : "";
+        if (p.FiveHour is { } five) yield return new(primary + "5 小时窗口", five);
+        if (p.Weekly is { } week) yield return new(primary + "7 天窗口", week);
         if (p.Monthly is { } month) yield return new("月窗口", month);
         if (p.Daily is { } day) yield return new("日窗口", day);
         var pool = p.SecondaryPoolName.Length > 0 ? p.SecondaryPoolName : "第二池";
@@ -94,6 +95,7 @@ public static class ProviderDetails
         "Gemini" => [paths.ResolveOwnDataFile("agy-quota.json"), paths.AgyQuota, Path.Combine(paths.GeminiRoot, "antigravity-cli", "settings.json"), Path.Combine(paths.GeminiRoot, "antigravity-cli", "antigravity-oauth-token")],
         PiDesktopUsage.SourceName => [Path.Combine(paths.PiDesktopSessions, "**", "*.jsonl")],
         ZCodeUsage.SourceName => [paths.ZCodeDatabase],
+        AntigravityUsage.SourceName => [paths.AntigravityConversations],
         DevinUsage.SourceName => [paths.DevinDatabase, paths.DevinStateDatabase],
         WorkBuddyUsage.SourceName => [Path.Combine(paths.WorkBuddyRoot, "projects", "**", "*.jsonl"), Path.Combine(paths.WorkBuddyAiRoot, "projects", "**", "*.jsonl")],
         DshUsage.SourceName => [Path.Combine(paths.DshSessions, "**", "session.v4.jsonl[.zstd]")],

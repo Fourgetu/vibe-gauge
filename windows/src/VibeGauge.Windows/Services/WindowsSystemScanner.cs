@@ -304,11 +304,12 @@ public sealed partial class WindowsSystemScanner
         foreach (var process in processes.Values)
         {
             var command = process.CommandLine.Length > 0 ? process.CommandLine : process.Name;
-            if (IsClaudeDesktop(process)) matched[process.ProcessId] = "claude-desktop";
+            if (IsAntigravity(process)) matched[process.ProcessId] = AntigravityUsage.SourceName;
+            else if (IsClaudeDesktop(process)) matched[process.ProcessId] = "claude-desktop";
             else if (IsClaudeCode(process, command)) matched[process.ProcessId] = "claude";
             // A short-lived quota helper belongs to VibeGauge, not a user session.
             else if (IsCodex(command) && process.ParentProcessId != Environment.ProcessId) matched[process.ProcessId] = "codex";
-            else if (IsGemini(command)) matched[process.ProcessId] = "gemini";
+            else if (IsGemini(command) && process.ParentProcessId != Environment.ProcessId) matched[process.ProcessId] = "gemini";
             else if (IsPiDesktop(process)) matched[process.ProcessId] = "pi-desktop";
             else if (IsZCode(process)) matched[process.ProcessId] = "zcode";
             else if (IsWorkBuddy(process)) matched[process.ProcessId] = "workbuddy";
@@ -365,7 +366,8 @@ public sealed partial class WindowsSystemScanner
                     "zcode" => "ZCode", "workbuddy" => "WorkBuddy", "dsh" => "DSH Desktop", _ => x.Value };
                 return new ProviderProcess(provider, process.ProcessId, process.StartedAt, process.MemoryMb, process.ExecutablePath,
                     provider == ClaudeDesktop.Name ? ClaudeDataDirectory(x.Key, processes) : "");
-            }).ToArray(), ClaudeDesktopProcesses: roots.Count(x => x.Value == "claude-desktop"), DevinProcesses: roots.Count(x => x.Value == DevinUsage.SourceName));
+            }).ToArray(), ClaudeDesktopProcesses: roots.Count(x => x.Value == "claude-desktop"), DevinProcesses: roots.Count(x => x.Value == DevinUsage.SourceName),
+            AntigravityProcesses: roots.Count(x => x.Value == AntigravityUsage.SourceName));
     }
 
     private static bool HasMatchedAncestor(int pid, IReadOnlyDictionary<int, ProcessSnapshot> processes, IReadOnlyDictionary<int, string> matched)
@@ -410,6 +412,8 @@ public sealed partial class WindowsSystemScanner
 
     private static bool IsClaude(string command) => IsCli(command, "claude") && !command.Contains("mcp-server", StringComparison.OrdinalIgnoreCase);
     private static bool IsCodex(string command) => IsCli(command, "codex") && !command.Contains("mcp-server", StringComparison.OrdinalIgnoreCase) && !command.Contains("codex-path", StringComparison.OrdinalIgnoreCase);
+    private static bool IsAntigravity(ProcessSnapshot value) => Path.GetFileName(value.ExecutablePath.Length > 0 ? value.ExecutablePath : value.Name)
+        .Equals("Antigravity.exe", StringComparison.OrdinalIgnoreCase);
     private static bool IsGemini(string command) => IsCli(command, "agy") || IsCli(command, "gemini");
     public static bool IsPiDesktop(ProcessSnapshot process) =>
         Path.GetFileName(process.ExecutablePath.Length > 0 ? process.ExecutablePath : process.Name)

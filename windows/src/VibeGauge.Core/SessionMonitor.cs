@@ -12,10 +12,13 @@ public sealed record SessionSummary(IReadOnlyList<SessionContext> Active, IReadO
 public sealed class SessionMonitor(AppPaths paths)
 {
     private readonly Dictionary<string, Cursor> cursors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AntigravitySessions antigravity = new();
 
-    public SessionSummary Scan(DateTimeOffset now, IReadOnlyList<InteractionRecord>? desktopRecords = null)
+    public SessionSummary Scan(DateTimeOffset now, IReadOnlyList<InteractionRecord>? desktopRecords = null,
+        IReadOnlyList<InteractionRecord>? antigravityRecords = null)
     {
         var active = new List<SessionContext>();
+        active.AddRange(antigravity.Read(paths, now, antigravityRecords ?? []));
         foreach (var group in (desktopRecords ?? []).Where(x => x.SessionId.Length > 0 && x.Timestamp <= now).GroupBy(x => x.SessionId))
         {
             var latest = group.MaxBy(x => x.Timestamp)!;

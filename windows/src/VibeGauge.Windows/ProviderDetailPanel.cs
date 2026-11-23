@@ -37,7 +37,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
         var metadata = provider.Metadata ?? new ProviderMetadata([], ProviderDetails.Sources(paths, provider));
 
         var windows = ProviderDetails.Windows(provider).ToArray();
-        if (windows.Length > 0) Quotas("额度窗口", windows, now);
+        if (windows.Length > 0) Quotas(provider.Name == AntigravityUsage.SourceName ? "剩余额度 · agy" : "额度窗口", windows, now, provider.Name == AntigravityUsage.SourceName);
         if (provider.ExtraQuotas is { Count: > 0 } extra)
         {
             var section = Section("模型与额外额度池");
@@ -81,7 +81,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
         var sessions = snapshot.Sessions?.Active.Where(x => ProviderDetails.Matches(provider.Name, x.Tool)).ToArray() ?? [];
         if (sessions.Length > 0)
         {
-            var section = Section(provider.Name == ClaudeDesktop.Name ? $"会话用量 · {sessions.Length}" : $"会话上下文 · {sessions.Length}");
+            var section = Section(provider.Name is ClaudeDesktop.Name or AntigravityUsage.SourceName ? $"会话用量 · {sessions.Length}" : $"会话上下文 · {sessions.Length}");
             foreach (var session in sessions)
             {
                 var title = InsightUi.Text(string.IsNullOrEmpty(session.Directory) ? "未知工作目录" : session.Directory, true);
@@ -205,7 +205,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
         if (source.Name == ClaudeDesktop.Name && source.Note.Length > 0) section.Children.Add(InsightUi.Text(source.Note));
     }
 
-    private void Quotas(string title, IReadOnlyList<NamedQuota> quotas, DateTimeOffset now)
+    private void Quotas(string title, IReadOnlyList<NamedQuota> quotas, DateTimeOffset now, bool remaining = false)
     {
         var section = Section(title);
         var grid = new Wpf.Primitives.UniformGrid { Columns = 2 };
@@ -214,8 +214,9 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             var w = quota.Window;
             var trust = w.Trust(now);
             var stale = trust is "等待新回报" or "可能过期";
-            var pct = w.EffectivePercent(now);
-            var color = stale ? Brush("TextMutedBrush") : QuotaVisuals.BrushForPercent(pct);
+            var used = w.EffectivePercent(now);
+            var pct = remaining ? 100 - used : used;
+            var color = stale ? Brush("TextMutedBrush") : QuotaVisuals.BrushForPercent(used);
             var column = new Wpf.StackPanel { Margin = new Thickness(3, 4, 3, 10) };
             var label = InsightUi.Text(quota.Label, true);
             label.TextAlignment = TextAlignment.Center;
@@ -236,12 +237,12 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             }
             var value = InsightUi.Text(stale ? "—" : $"{pct}%", true);
             value.FontSize = 19;
-            value.Foreground = stale ? Brush("TextMutedBrush") : pct > 80 ? color : Brush("TextPrimaryBrush");
+            value.Foreground = stale ? Brush("TextMutedBrush") : used > 80 ? color : Brush("TextPrimaryBrush");
             value.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
             value.VerticalAlignment = VerticalAlignment.Center;
             value.Margin = new Thickness(0);
             ring.Children.Add(value);
-            ring.ToolTip = $"{quota.Label}\n{trust}\n上次回报 {w.UsedPercent}%\n采集 {w.CapturedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}\n{w.ResetDescription(now)} · {w.ResetsAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}";
+            ring.ToolTip = $"{quota.Label}\n{trust}\n上次回报已用 {w.UsedPercent}%\n采集 {w.CapturedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}\n{w.ResetDescription(now)} · {w.ResetsAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知"}";
             column.Children.Add(ring);
             foreach (var line in new[] { trust, w.ResetDescription(now),
                 w.Age(now) is { } age ? $"额度回报 {Math.Max(0, age.TotalMinutes):N0} 分钟前" : "未回报采集时间" })
