@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Documents;
 using VibeGauge.Core;
 using VibeGauge.Windows.Services;
 using Wpf = System.Windows.Controls;
@@ -8,15 +9,21 @@ namespace VibeGauge.Windows;
 
 internal static class InsightUi
 {
-    internal static Wpf.TextBlock Text(string value, bool heading = false) => new()
+    internal static Wpf.TextBlock Text(string value, bool heading = false)
     {
-        Text = value,
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 3, 0, 5),
-        FontSize = heading ? 14 : 11.5,
-        Foreground = (Media.Brush)System.Windows.Application.Current.FindResource(heading ? "TextPrimaryBrush" : "TextSecondaryBrush"),
-        FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal
-    };
+        var block = new Wpf.TextBlock
+        {
+            Text = value,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 5),
+            FontSize = heading ? 14 : 11.5,
+            FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal
+        };
+        block.SetResourceReference(Wpf.TextBlock.ForegroundProperty, heading ? "TextPrimaryBrush" : "TextSecondaryBrush");
+        Typography.SetNumeralAlignment(block, FontNumeralAlignment.Tabular);
+        return block;
+    }
+
     internal static Wpf.Button Button(string text, RoutedEventHandler click)
     {
         var button = new Wpf.Button
@@ -28,11 +35,37 @@ internal static class InsightUi
         button.Click += click;
         return button;
     }
+
+    internal static Wpf.Button IconButton(string glyph, string tooltip, RoutedEventHandler click, double fontSize = 13)
+    {
+        var icon = new Wpf.TextBlock
+        {
+            Text = glyph,
+            FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("IconFontFamily"),
+            FontSize = fontSize
+        };
+        var button = new Wpf.Button
+        {
+            Content = icon,
+            ToolTip = tooltip,
+            Style = (Style)System.Windows.Application.Current.FindResource("IconButtonStyle")
+        };
+        icon.SetBinding(Wpf.TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Wpf.Control.Foreground))
+        {
+            RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Wpf.Button), 1)
+        });
+        System.Windows.Automation.AutomationProperties.SetName(button, tooltip);
+        button.Click += click;
+        return button;
+    }
+
     internal static void Row(Wpf.Panel panel, string title, string detail)
     {
         panel.Children.Add(Text(title, true));
         panel.Children.Add(Text(detail));
-        panel.Children.Add(new Wpf.Border { Height = 1, Background = (Media.Brush)System.Windows.Application.Current.FindResource("BorderBrush"), Margin = new Thickness(0, 5, 0, 7) });
+        var divider = new Wpf.Border { Height = 1, Margin = new Thickness(0, 5, 0, 7) };
+        divider.SetResourceReference(Wpf.Border.BackgroundProperty, "BorderBrush");
+        panel.Children.Add(divider);
     }
 }
 
@@ -139,81 +172,159 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
     {
         renderedToday = DateOnly.FromDateTime(DateTime.Today);
         body.Children.Clear();
-        var buttons = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
+
+        var scopeRow = new Wpf.DockPanel { Margin = new Thickness(0, 2, 0, 8) };
+        var rangeRow = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
         foreach (var (id, label) in new[] { ("today", "今日"), ("7d", "7D"), ("30d", "30D"), ("all", "全部") })
         {
-            var button = InsightUi.Button(label, (_, _) => SelectRange(id));
-            button.Name = "StatsRange_" + id;
             var active = SelectedDate is null && id == range;
-            button.FontWeight = active ? FontWeights.Bold : FontWeights.Normal;
-            if (active) { button.Background = Brush("HoverBrush"); button.Foreground = Brush("AccentBrush"); }
-            buttons.Children.Add(button);
+            var button = new Wpf.Button
+            {
+                Name = "StatsRange_" + id,
+                Content = label,
+                Tag = active ? "Selected" : null,
+                Style = (Style)System.Windows.Application.Current.FindResource("SegmentButtonStyle")
+            };
+            button.Click += (_, _) => SelectRange(id);
+            rangeRow.Children.Add(button);
         }
-        body.Children.Add(buttons);
-        var period = CurrentPeriod;
-        var scope = new Wpf.DockPanel();
+        var rangeHost = new Wpf.Border
+        {
+            Child = rangeRow,
+            Style = (Style)System.Windows.Application.Current.FindResource("SegmentedHostStyle"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Wpf.DockPanel.SetDock(rangeHost, Wpf.Dock.Right);
+        scopeRow.Children.Add(rangeHost);
+
+        var title = InsightUi.Text(ScopeLabel + " · 用量", true);
+        title.Name = "StatsScopeTitle";
+        title.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
+        title.FontSize = 14.5;
+        title.VerticalAlignment = VerticalAlignment.Center;
+        title.Margin = new Thickness(0, 0, 8, 0);
+        scopeRow.Children.Add(title);
+        body.Children.Add(scopeRow);
+
         if (SelectedDate is not null)
         {
             var back = InsightUi.Button("返回" + RangeLabel, (_, _) => ClearDateSelection());
             back.Name = "StatsBackToRange";
-            Wpf.DockPanel.SetDock(back, Wpf.Dock.Right);
-            scope.Children.Add(back);
+            back.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+            back.Margin = new Thickness(0, 0, 0, 8);
+            body.Children.Add(back);
         }
-        var title = InsightUi.Text(ScopeLabel + " · 用量", true);
-        title.Name = "StatsScopeTitle";
-        scope.Children.Add(title);
-        body.Children.Add(scope);
+
+        var period = CurrentPeriod;
         body.Children.Add(SummaryCards(period));
         var interval = period.Start == period.End ? period.Start.ToString("yyyy-MM-dd") : $"{period.Start:yyyy-MM-dd} 至 {period.End:yyyy-MM-dd}";
-        body.Children.Add(InsightUi.Text($"{interval} · {period.Calls:N0} 次调用"));
+        var metaLine = InsightUi.Text($"{interval} · {period.Calls:N0} 次调用");
+        metaLine.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        metaLine.FontSize = 11;
+        metaLine.Margin = new Thickness(2, 4, 0, 9);
+        body.Children.Add(metaLine);
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var navigation = new Wpf.DockPanel { Margin = new Thickness(0, 5, 0, 0) };
-        var previous = InsightUi.Button("‹", (_, _) => Navigate(-1));
-        previous.Name = "StatsPrevious";
-        previous.ToolTip = hourly ? "前 7 天" : "上个月";
-        var next = InsightUi.Button("›", (_, _) => Navigate(1));
-        next.Name = "StatsNext";
-        next.ToolTip = hourly ? "后 7 天" : "下个月";
-        next.IsEnabled = hourly ? weekEnd < today : month < new DateOnly(today.Year, today.Month, 1);
-        navigation.Children.Add(previous);
-        navigation.Children.Add(next);
-        var modes = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
-        modes.Children.Add(ModeButton("\uE787", "月历", false));
-        modes.Children.Add(ModeButton("\uE9D9", "按小时", true));
-        Wpf.DockPanel.SetDock(modes, Wpf.Dock.Right);
-        navigation.Children.Add(modes);
-        var calendarTitle = InsightUi.Text(hourly
-            ? $"{weekEnd.AddDays(-6):yyyy-MM-dd} 至 {weekEnd:MM-dd} · 小时"
-            : month.ToString("yyyy 年 MM 月"));
-        calendarTitle.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
-        calendarTitle.VerticalAlignment = VerticalAlignment.Center;
-        navigation.Children.Add(calendarTitle);
-        body.Children.Add(navigation);
-        body.Children.Add(hourly ? HourGrid() : Calendar());
+        body.Children.Add(HeatmapCard());
         body.Children.Add(TokenDistribution(period));
         body.Children.Add(ModelDistribution(period));
         body.Children.Add(AgentConsumption(period));
     }
 
+    private FrameworkElement HeatmapCard()
+    {
+        var content = new Wpf.StackPanel();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var navigation = new Wpf.DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+
+        var navButtons = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var previous = InsightUi.IconButton("\uE76B", hourly ? "前 7 天" : "上个月", (_, _) => Navigate(-1), fontSize: 11);
+        previous.Name = "StatsPrevious";
+        var next = InsightUi.IconButton("\uE76C", hourly ? "后 7 天" : "下个月", (_, _) => Navigate(1), fontSize: 11);
+        next.Name = "StatsNext";
+        next.IsEnabled = hourly ? weekEnd < today : month < new DateOnly(today.Year, today.Month, 1);
+        navButtons.Children.Add(previous);
+        navButtons.Children.Add(next);
+        Wpf.DockPanel.SetDock(navButtons, Wpf.Dock.Left);
+        navigation.Children.Add(navButtons);
+
+        var modeRow = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
+        modeRow.Children.Add(ModeButton("\uE787", "月历", false));
+        modeRow.Children.Add(ModeButton("\uE9D9", "按小时", true));
+        var modeHost = new Wpf.Border
+        {
+            Child = modeRow,
+            Style = (Style)System.Windows.Application.Current.FindResource("SegmentedHostStyle"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Wpf.DockPanel.SetDock(modeHost, Wpf.Dock.Right);
+        navigation.Children.Add(modeHost);
+
+        var calendarTitle = InsightUi.Text(hourly
+            ? $"{weekEnd.AddDays(-6):MM-dd} 至 {weekEnd:MM-dd} · 按小时"
+            : month.ToString("yyyy 年 MM 月"), true);
+        calendarTitle.FontSize = 13;
+        calendarTitle.Margin = new Thickness(4, 0, 4, 0);
+        calendarTitle.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+        calendarTitle.VerticalAlignment = VerticalAlignment.Center;
+        navigation.Children.Add(calendarTitle);
+        content.Children.Add(navigation);
+
+        content.Children.Add(hourly ? HourGrid() : Calendar());
+        content.Children.Add(HeatmapLegend());
+        return SectionCard(content, "StatsHeatmapCard");
+    }
+
+    private FrameworkElement HeatmapLegend()
+    {
+        var dock = new Wpf.DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var legend = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var less = InsightUi.Text("少");
+        less.FontSize = 11; less.Margin = new Thickness(0, 0, 5, 0);
+        less.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        legend.Children.Add(less);
+        foreach (var key in new[] { "HeatZeroBrush", "HeatLevel1Brush", "HeatLevel2Brush", "HeatLevel3Brush", "HeatLevel4Brush" })
+        {
+            var swatch = new Wpf.Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(2.5), Margin = new Thickness(1.5, 0, 1.5, 0) };
+            swatch.SetResourceReference(Wpf.Border.BackgroundProperty, key);
+            legend.Children.Add(swatch);
+        }
+        var more = InsightUi.Text("多");
+        more.FontSize = 11; more.Margin = new Thickness(5, 0, 0, 0);
+        more.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        legend.Children.Add(more);
+        Wpf.DockPanel.SetDock(legend, Wpf.Dock.Right);
+        dock.Children.Add(legend);
+
+        var peak = statistics.Days.Where(x => x.Date.Year == month.Year && x.Date.Month == month.Month && x.Calls > 0)
+            .OrderByDescending(x => x.Calls).FirstOrDefault();
+        var note = InsightUi.Text(peak is not null && !hourly ? $"高峰 {peak.Date:MM-dd} · {peak.Calls:N0} 次" : "");
+        note.FontSize = 11; note.Margin = new Thickness(0);
+        note.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        dock.Children.Add(note);
+        return dock;
+    }
+
     private Wpf.Button ModeButton(string glyph, string label, bool value)
     {
+        var active = value == hourly;
+        var icon = new Wpf.TextBlock
+        {
+            Text = glyph,
+            FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("IconFontFamily"),
+            FontSize = 13,
+            Margin = new Thickness(0)
+        };
+        icon.SetResourceReference(Wpf.TextBlock.ForegroundProperty, active ? "SelectedSegmentTextBrush" : "TextSecondaryBrush");
         var button = new Wpf.Button
         {
             Name = value ? "StatsHourlyMode" : "StatsCalendarMode",
-            Content = new Wpf.TextBlock
-            {
-                Text = glyph,
-                FontFamily = new Media.FontFamily("Segoe MDL2 Assets"),
-                FontSize = 14,
-                Foreground = Brush(value == hourly ? "AccentBrush" : "TextSecondaryBrush"),
-                Margin = new Thickness(0)
-            },
+            Content = icon,
+            Width = 26,
+            Height = 23,
             Style = (Style)System.Windows.Application.Current.FindResource("IconButtonStyle"),
-            ToolTip = label,
-            Margin = new Thickness(2, 0, 0, 5)
+            ToolTip = label
         };
-        if (value == hourly) { button.Background = Brush("HoverBrush"); button.Foreground = Brush("AccentBrush"); }
+        if (active) button.SetResourceReference(Wpf.Control.BackgroundProperty, "SelectedSegmentBrush");
         System.Windows.Automation.AutomationProperties.SetName(button, label);
         button.Click += (_, _) => SetHourly(value);
         return button;
@@ -221,6 +332,10 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
 
     private Wpf.Button DayButton(DateOnly date, string name, string label, Media.Brush background, string tooltip)
     {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var borderBrush = SelectedDate == date
+            ? Brush("AccentBrush")
+            : date == today ? Brush("BorderStrongBrush") : Media.Brushes.Transparent;
         var button = new Wpf.Button
         {
             Name = name,
@@ -228,9 +343,9 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
             Content = label,
             Style = (Style)System.Windows.Application.Current.FindResource("HeatmapButtonStyle"),
             Background = background,
-            BorderBrush = SelectedDate == date ? Brush("AccentBrush") : Media.Brushes.Transparent,
+            BorderBrush = borderBrush,
             Foreground = Brush("TextSecondaryBrush"),
-            IsEnabled = date <= DateOnly.FromDateTime(DateTime.Today),
+            IsEnabled = date <= today,
             ToolTip = tooltip
         };
         System.Windows.Automation.AutomationProperties.SetName(button, tooltip.Replace('\n', ' '));
@@ -240,28 +355,40 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
 
     private FrameworkElement Calendar()
     {
-        var grid = new Wpf.Grid { Height = 206, Margin = new Thickness(0, 5, 0, 12) };
+        var grid = new Wpf.Grid { Height = 198, Margin = new Thickness(0, 2, 0, 2) };
         for (var i = 0; i < 7; i++) { grid.ColumnDefinitions.Add(new()); grid.RowDefinitions.Add(new()); }
         var labels = new[] { "一", "二", "三", "四", "五", "六", "日" };
         for (var col = 0; col < 7; col++)
         {
-            var header = InsightUi.Text(labels[col]); header.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+            var header = InsightUi.Text(labels[col]);
+            header.FontSize = 11.5;
+            header.FontWeight = FontWeights.SemiBold;
+            header.Margin = new Thickness(0, 0, 0, 3);
+            header.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            header.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
             Wpf.Grid.SetColumn(header, col); grid.Children.Add(header);
         }
         var first = month.AddDays(-(((int)month.DayOfWeek + 6) % 7));
         var lookup = statistics.Days.ToDictionary(x => x.Date);
         var maximum = Math.Max(1, statistics.Days.Where(x => x.Date.Month == month.Month && x.Date.Year == month.Year).Select(x => x.Calls).DefaultIfEmpty().Max());
+        var isLight = ((ThemePalette)System.Windows.Application.Current.FindResource("ThemePalette")).IsLight;
         for (var i = 0; i < 42; i++)
         {
             var date = first.AddDays(i);
             var data = lookup.GetValueOrDefault(date);
             var active = date.Month == month.Month && date.Year == month.Year;
-            var cell = DayButton(date, $"StatsDay{date:yyyyMMdd}", date.Day.ToString(), Heat(active ? data?.Calls ?? 0 : 0, maximum),
+            var calls = active ? data?.Calls ?? 0 : 0;
+            var level = HeatLevel(calls, maximum);
+            var cell = DayButton(date, $"StatsDay{date:yyyyMMdd}", date.Day.ToString(), HeatBrush(level),
                 $"{date:yyyy-MM-dd}\n调用 {data?.Calls ?? 0:N0} 次\n总 Token {Tokens(data?.TotalTokens ?? 0)}\n上下文 {Tokens(data?.Context ?? 0)} · 输出 {Tokens(data?.Output ?? 0)}");
             cell.Margin = new Thickness(2);
-            cell.Opacity = active ? 1 : .45;
-            cell.Foreground = !active || (data?.Calls ?? 0) == 0 ? Brush("TextSecondaryBrush")
-                : (data!.Calls / (double)maximum >= .25 ? new Media.SolidColorBrush(Media.Color.FromRgb(15, 40, 26)) : Media.Brushes.White);
+            // Avoid stacking opacity on top of the disabled trigger for future dates.
+            cell.Opacity = active || !cell.IsEnabled ? 1 : .66;
+            cell.Foreground = level == 0
+                ? Brush(active ? "TextPrimaryBrush" : "TextMutedBrush")
+                : isLight
+                    ? (level >= 3 ? Media.Brushes.White : new Media.SolidColorBrush(Media.Color.FromRgb(14, 44, 24)))
+                    : (level >= 4 ? new Media.SolidColorBrush(Media.Color.FromRgb(10, 32, 18)) : Media.Brushes.White);
             Wpf.Grid.SetRow(cell, i / 7 + 1); Wpf.Grid.SetColumn(cell, i % 7); grid.Children.Add(cell);
         }
         return grid;
@@ -269,13 +396,15 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
 
     private FrameworkElement HourGrid()
     {
-        var grid = new Wpf.Grid { Height = 206, Margin = new Thickness(0, 5, 0, 12) };
+        var grid = new Wpf.Grid { Height = 198, Margin = new Thickness(0, 2, 0, 2) };
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(42) });
         for (var i = 0; i < 24; i++) grid.ColumnDefinitions.Add(new());
         for (var i = 0; i < 8; i++) grid.RowDefinitions.Add(new());
         for (var h = 0; h <= 24; h += 6)
         {
             var text = InsightUi.Text(h.ToString());
+            text.FontSize = 10.5;
+            text.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
             Wpf.Grid.SetColumn(text, Math.Min(24, h + 1));
             grid.Children.Add(text);
         }
@@ -291,7 +420,7 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
             for (var h = 0; h < 24; h++)
             {
                 var count = lookup.GetValueOrDefault((date, h));
-                var cell = DayButton(date, $"StatsHour{date:yyyyMMdd}_{h:00}", "", Heat(count, maximum),
+                var cell = DayButton(date, $"StatsHour{date:yyyyMMdd}_{h:00}", "", HeatBrush(HeatLevel(count, maximum)),
                     $"{date:yyyy-MM-dd} {h:00}:00–{h + 1:00}:00\n调用 {count:N0} 次");
                 cell.BorderBrush = Media.Brushes.Transparent;
                 cell.Margin = new Thickness(1, 3, 1, 3);
@@ -300,8 +429,23 @@ public sealed partial class StatisticsPanel : Wpf.UserControl
         }
         return grid;
     }
-    private static Media.Brush Heat(int count, int max) => count == 0 ? (Media.Brush)System.Windows.Application.Current.FindResource("HeatZeroBrush") :
-        new Media.SolidColorBrush(Media.Color.FromRgb(38, (byte)(90 + 105 * Math.Sqrt(count / (double)max)), 112));
+
+    internal static int HeatLevel(int count, int max)
+    {
+        if (count <= 0) return 0;
+        var ratio = count / (double)Math.Max(1, max);
+        return ratio >= 0.75 ? 4 : ratio >= 0.45 ? 3 : ratio >= 0.2 ? 2 : 1;
+    }
+
+    private static Media.Brush HeatBrush(int level) => Brush(level switch
+    {
+        1 => "HeatLevel1Brush",
+        2 => "HeatLevel2Brush",
+        3 => "HeatLevel3Brush",
+        4 => "HeatLevel4Brush",
+        _ => "HeatZeroBrush"
+    });
+
     private static Media.Brush Brush(string name) => (Media.Brush)System.Windows.Application.Current.FindResource(name);
 }
 
@@ -346,9 +490,9 @@ public sealed class SessionsPanel : Wpf.UserControl
             row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
             var label = new Wpf.StackPanel();
             var line = new Wpf.TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 11.5 };
-            line.Inlines.Add(new System.Windows.Documents.Run(session.Tool == AntigravityUsage.SourceName ? session.Directory : ProjectName(session.Directory)) { FontWeight = FontWeights.SemiBold });
+            line.Inlines.Add(new Run(session.Tool == AntigravityUsage.SourceName ? session.Directory : ProjectName(session.Directory)) { FontWeight = FontWeights.SemiBold });
             var source = session.Model.Length > 0 ? $"{session.Tool} · {Formatting.ModelDisplayName(session.Model)}" : session.Tool;
-            line.Inlines.Add(new System.Windows.Documents.Run("  " + source) { Foreground = Brush("TextSecondaryBrush") });
+            line.Inlines.Add(new Run("  " + source) { Foreground = Brush("TextMutedBrush") });
             label.Children.Add(line);
             if (session.Compactions > 0) label.Children.Add(InsightUi.Text($"今日压缩 {session.Compactions} 次"));
             row.Children.Add(label);
@@ -373,16 +517,21 @@ public sealed class SessionsPanel : Wpf.UserControl
             pct.FontSize = 12; pct.Margin = new Thickness(6, 0, 0, 0); pct.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
             Wpf.Grid.SetColumn(pct, 2); row.Children.Add(pct);
             var size = InsightUi.Text(session.Window is { } window ? Formatting.Tokens(window, tokenUnit) : "");
-            size.FontSize = 10; size.Margin = new Thickness(5, 0, 0, 0); size.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
+            size.FontSize = 10.5; size.Margin = new Thickness(5, 0, 0, 0); size.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
+            size.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
             Wpf.Grid.SetColumn(size, 3); row.Children.Add(size); body.Children.Add(row);
         }
     }
 
     private void Heading(string text, string count, string color)
     {
-        body.Children.Add(new Wpf.Border { Height = 1, Background = Brush("BorderBrush"), Margin = new Thickness(0, 3, 0, 10) });
+        var divider = new Wpf.Border { Height = 1, Margin = new Thickness(0, 3, 0, 10) };
+        divider.SetResourceReference(Wpf.Border.BackgroundProperty, "BorderBrush");
+        body.Children.Add(divider);
         var header = new Wpf.DockPanel();
-        var total = InsightUi.Text(count); Wpf.DockPanel.SetDock(total, Wpf.Dock.Right); header.Children.Add(total);
+        var total = InsightUi.Text(count);
+        total.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        Wpf.DockPanel.SetDock(total, Wpf.Dock.Right); header.Children.Add(total);
         var title = InsightUi.Text(text, true); title.Foreground = Brush(color); header.Children.Add(title); body.Children.Add(header);
     }
     private static Media.Brush Brush(string name) => (Media.Brush)System.Windows.Application.Current.FindResource(name);

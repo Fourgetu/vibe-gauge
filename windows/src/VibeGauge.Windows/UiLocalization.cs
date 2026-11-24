@@ -137,5 +137,5 @@ public static class UiLocalization
 public static class LocalizedMessageBox
 {
     public static MessageBoxResult Show(string text, string caption, MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage image = MessageBoxImage.None) =>
-        System.Windows.MessageBox.Show(UiLocalization.Text(text), UiLocalization.Text(caption), buttons, image);
+        GlassDialog.ShowDialog(UiLocalization.Text(text), UiLocalization.Text(caption), buttons, image);
 }

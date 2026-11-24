@@ -25,13 +25,25 @@ public sealed class RemoteApiUsagePanel : Wpf.UserControl
         body.Children.Clear();
         body.Children.Add(InsightUi.Text("Codex Proxy RS · 服务端统计", true));
         body.Children.Add(InsightUi.Text("独立统计当前 Key 的全部设备调用；不与本地代理或 Codex 日志相加。"));
-        var controls = new Wpf.WrapPanel();
+        var controlsRow = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
         foreach (var (key, title) in new[] { ("today", "今日"), ("30d", "近 30 天"), ("all", "已同步累计") })
         {
-            var button = InsightUi.Button(title, (_, _) => { period = key; Render(); });
-            button.IsEnabled = period != key; controls.Children.Add(button);
+            var button = new Wpf.Button
+            {
+                Content = title,
+                Tag = period == key ? "Selected" : null,
+                Style = (Style)FindResource("SegmentButtonStyle")
+            };
+            button.Click += (_, _) => { if (period == key) return; period = key; Render(); };
+            controlsRow.Children.Add(button);
         }
-        body.Children.Add(controls);
+        body.Children.Add(new Wpf.Border
+        {
+            Child = controlsRow,
+            Style = (Style)FindResource("SegmentedHostStyle"),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+            Margin = new Thickness(0, 2, 0, 6)
+        });
         foreach (var provider in last)
         {
             var section = new Wpf.StackPanel();
@@ -61,21 +73,33 @@ public sealed class RemoteApiUsagePanel : Wpf.UserControl
             if (range.AnalyticsState.Length > 0) section.Children.Add(InsightUi.Text("服务端分析状态：" + range.AnalyticsState));
             if (report.Recent.Buckets.Count > 0)
             {
-                var trend = new Wpf.Primitives.UniformGrid { Rows = 1, Height = 35, Margin = new Thickness(0, 5, 0, 5) };
+                var trend = new Wpf.Primitives.UniformGrid { Rows = 1, Height = 36, Margin = new Thickness(0, 5, 0, 5) };
                 var buckets = report.Recent.Buckets.TakeLast(90).ToArray();
                 var max = Math.Max(1, buckets.Max(x => x.Metrics.Total));
                 foreach (var bucket in buckets)
                 {
-                    var bar = new Wpf.Border { Height = Math.Max(2, 35d * bucket.Metrics.Total / max), VerticalAlignment = VerticalAlignment.Bottom,
-                        Margin = new Thickness(0, 0, 1, 0), ToolTip = $"{bucket.Label}\n{bucket.Start:O}\n{bucket.Metrics.Total:N0} Token · {bucket.Metrics.Requests:N0} 次" };
+                    var bar = new Wpf.Border
+                    {
+                        Height = Math.Max(2, 36d * bucket.Metrics.Total / max),
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        CornerRadius = new CornerRadius(1.5, 1.5, 0, 0),
+                        Margin = new Thickness(0, 0, 1, 0),
+                        ToolTip = $"{bucket.Label}\n{bucket.Start:O}\n{bucket.Metrics.Total:N0} Token · {bucket.Metrics.Requests:N0} 次"
+                    };
                     bar.SetResourceReference(Wpf.Border.BackgroundProperty, "AccentBrush"); trend.Children.Add(bar);
                 }
                 section.Children.Add(InsightUi.Text("服务端近期趋势")); section.Children.Add(trend);
             }
             var recent = new Wpf.StackPanel();
-            var expander = new Wpf.Expander { Header = "近 30 天最近 20 次请求", Content = recent, Tag = provider.Name,
-                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch, IsExpanded = expanded.Contains(provider.Name) };
-            expander.SetResourceReference(Wpf.Control.ForegroundProperty, "TextSecondaryBrush");
+            var expander = new Wpf.Expander
+            {
+                Header = "近 30 天最近 20 次请求",
+                Content = recent,
+                Tag = provider.Name,
+                Style = (Style)FindResource("DisclosureExpanderStyle"),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
+                IsExpanded = expanded.Contains(provider.Name)
+            };
             foreach (var call in report.Calls)
                 recent.Children.Add(InsightUi.Text($"{call.Model} · {call.Status}\n{call.Time} · " +
                     (call.Tokens is { } tokens ? Formatting.Tokens(tokens, unit) + " Token" : "用量未知") +

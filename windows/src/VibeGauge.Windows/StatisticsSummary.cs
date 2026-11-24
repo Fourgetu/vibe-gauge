@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Documents;
 using VibeGauge.Core;
 using Wpf = System.Windows.Controls;
 using Media = System.Windows.Media;
@@ -8,11 +9,12 @@ namespace VibeGauge.Windows;
 public sealed partial class StatisticsPanel
 {
     private static readonly string[] MixColors = ["AccentBrush", "WarningBrush", "LocalBrush", "GoodBrush", "StatsPinkBrush", "StatsTealBrush"];
+    private const int CollapsedModelCount = 4;
     private bool modelsExpanded;
 
     private FrameworkElement SummaryCards(UsagePeriod period)
     {
-        var grid = new Wpf.Primitives.UniformGrid { Name = "StatsMetrics", Columns = 2, Rows = 2, Margin = new Thickness(-4, 0, -4, 0) };
+        var grid = new Wpf.Primitives.UniformGrid { Name = "StatsMetrics", Columns = 2, Rows = 2, Margin = new Thickness(-3.5, 0, -3.5, 0) };
         var cost = statistics.Prices?.Estimate(period.Models);
         var invalidPrices = statistics.Prices?.Error.Length > 0;
         var allUnpriced = period.Models.Count > 0 && cost is { HasPricedUsage: false };
@@ -37,13 +39,24 @@ public sealed partial class StatisticsPanel
         var label = InsightUi.Text(title); label.FontWeight = FontWeights.SemiBold;
         label.Margin = new Thickness(0, 0, 0, 4); content.Children.Add(label);
         var number = InsightUi.Text(value, true); number.Name = name; number.FontSize = 22;
+        number.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
         number.TextWrapping = TextWrapping.NoWrap; number.Margin = new Thickness(0);
+        Typography.SetNumeralAlignment(number, FontNumeralAlignment.Tabular);
         content.Children.Add(new Wpf.Viewbox { Child = number, Stretch = Media.Stretch.Uniform,
             StretchDirection = Wpf.StretchDirection.DownOnly, HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Height = 30 });
-        var caption = InsightUi.Text(detail); caption.FontSize = 10.5; caption.Margin = new Thickness(0, 4, 0, 0);
+        var caption = InsightUi.Text(detail); caption.FontSize = 11; caption.Margin = new Thickness(0, 4, 0, 0);
+        caption.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
         content.Children.Add(caption);
-        return new Wpf.Border { Name = name + "Card", Child = content, Background = Brush("PanelBrush"),
-            CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Margin = new Thickness(4), ToolTip = tooltip };
+        var card = new Wpf.Border
+        {
+            Name = name + "Card",
+            Child = content,
+            Style = (Style)System.Windows.Application.Current.FindResource("CardStyle"),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(3.5),
+            ToolTip = tooltip
+        };
+        return card;
     }
 
     private FrameworkElement TokenDistribution(UsagePeriod period)
@@ -84,9 +97,9 @@ public sealed partial class StatisticsPanel
         var details = new Wpf.StackPanel();
         AddModelRows(details, period, models);
         content.Children.Add(details);
-        if (models.Count > 2)
+        if (models.Count > CollapsedModelCount)
         {
-            string ToggleLabel() => modelsExpanded ? "收起为前 2 个模型" : $"显示全部 {models.Count} 个模型";
+            string ToggleLabel() => modelsExpanded ? $"收起为前 {CollapsedModelCount} 个模型" : $"显示全部 {models.Count} 个模型";
             var toggle = InsightUi.Button(ToggleLabel(), (_, _) => { });
             toggle.Name = "StatsModelsToggle";
             toggle.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
@@ -102,13 +115,15 @@ public sealed partial class StatisticsPanel
             content.Children.Add(toggle);
         }
         var note = InsightUi.Text("按 Token 计（输入含缓存 + 输出），不是订阅额度占比。同名模型跨来源合并；API 代理用量单独统计，不重复计入。");
-        note.FontSize = 10.5; note.Margin = new Thickness(0, 8, 0, 0); content.Children.Add(note);
+        note.FontSize = 10.5; note.Margin = new Thickness(0, 8, 0, 0);
+        note.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+        content.Children.Add(note);
         return SectionCard(content, "StatsModelDistribution");
     }
 
     private void AddModelRows(Wpf.StackPanel content, UsagePeriod period, IReadOnlyList<ModelMix> models)
     {
-        for (var i = 0; i < (modelsExpanded ? models.Count : Math.Min(2, models.Count)); i++)
+        for (var i = 0; i < (modelsExpanded ? models.Count : Math.Min(CollapsedModelCount, models.Count)); i++)
         {
             var model = models[i];
             var share = period.TotalTokens > 0 ? model.TotalTokens * 100d / period.TotalTokens : 0;
@@ -132,14 +147,18 @@ public sealed partial class StatisticsPanel
             row.ToolTip = $"{model.Model}\n{model.Source} · {model.Calls:N0} 次调用\n上下文 {Tokens(model.Context)} · 输出 {Tokens(model.Output)}\n缓存读取 {Tokens(model.CacheRead)} · 缓存写入 {Tokens(model.CacheWrite)}\n思考 {Tokens(model.Thinking)}";
             content.Children.Add(row);
             var detail = InsightUi.Text($"缓存读取 {Tokens(model.CacheRead)} · 输出 {Tokens(model.Output)}");
-            detail.FontSize = 11; detail.Margin = new Thickness(12, 2, 0, 5); content.Children.Add(detail);
+            detail.FontSize = 10.5; detail.Margin = new Thickness(12, 2, 0, 5);
+            detail.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+            content.Children.Add(detail);
         }
     }
 
     private FrameworkElement AgentConsumption(UsagePeriod period)
     {
         var section = new Wpf.StackPanel { Name = "StatsAgents" };
-        section.Children.Add(SectionHeading(ScopeLabel + " · Agent 用量"));
+        var headingTitle = SectionHeading(ScopeLabel + " · Agent 用量");
+        headingTitle.Margin = new Thickness(2, 4, 0, 8);
+        section.Children.Add(headingTitle);
         var sources = period.Sources;
         foreach (var source in sources)
         {
@@ -148,20 +167,25 @@ public sealed partial class StatisticsPanel
             var share = period.TotalTokens > 0 ? source.TotalTokens * 100d / period.TotalTokens : 0;
             var percent = InsightUi.Text(period.TotalTokens > 0 ? $"{share:0.0}%" : "—");
             percent.Name = "StatsAgentShare"; percent.Tag = share;
+            percent.FontWeight = FontWeights.SemiBold;
             Wpf.DockPanel.SetDock(percent, Wpf.Dock.Right); heading.Children.Add(percent);
             var name = SectionHeading(source.Name); name.Name = "StatsAgentName"; name.Tag = source;
+            name.Margin = new Thickness(0, 0, 0, 4);
             heading.Children.Add(name); content.Children.Add(heading);
             var total = InsightUi.Text($"总 Token {Tokens(source.TotalTokens)}", true);
             total.Name = "StatsAgentTotal"; total.FontSize = 18; total.Margin = new Thickness(0, 0, 0, 6);
+            total.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
             content.Children.Add(total);
             content.Children.Add(new Wpf.ProgressBar { Minimum = 0, Maximum = 100, Value = share,
-                Height = 4, Margin = new Thickness(0, 0, 0, 7), Foreground = Brush("AccentBrush"),
+                Height = 4.5, Margin = new Thickness(0, 0, 0, 7), Foreground = Brush("AccentBrush"),
                 Background = Brush("TrackBrush"), BorderThickness = new Thickness(0),
                 Style = (Style)System.Windows.Application.Current.FindResource("CompactProgressStyle") });
-            var calls = InsightUi.Text($"{source.Turns:N0} 次调用"); calls.Margin = new Thickness(0, 0, 0, 4);
+            var calls = InsightUi.Text($"{source.Turns:N0} 次调用"); calls.Margin = new Thickness(0, 0, 0, 3);
             content.Children.Add(calls);
             var metrics = InsightUi.Text($"输入 {Tokens(source.ContextTokens)} · 输出 {Tokens(source.OutputTokens)}\n缓存读取 {Tokens(source.CacheReadTokens)} · 缓存写入 {Tokens(source.CacheWriteTokens)}\n思考 {Tokens(source.ThinkingTokens)}");
-            metrics.Margin = new Thickness(0, 0, 0, 4); content.Children.Add(metrics);
+            metrics.Margin = new Thickness(0, 0, 0, 4);
+            metrics.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+            content.Children.Add(metrics);
             var models = period.Models.Where(x => x.Source == source.Name).ToArray();
             var estimate = statistics.Prices?.Estimate(models);
             var costText = statistics.Prices?.Error.Length > 0 ? "价格表无效"
@@ -187,13 +211,19 @@ public sealed partial class StatisticsPanel
 
     private static Wpf.TextBlock SectionHeading(string value)
     {
-        var text = InsightUi.Text(value, true); text.Margin = new Thickness(0, 0, 0, 10); return text;
+        var text = InsightUi.Text(value, true);
+        text.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
+        text.Margin = new Thickness(0, 0, 0, 9);
+        return text;
     }
 
     private static Wpf.Border SectionCard(Wpf.StackPanel content, string name) => new()
     {
-        Name = name, Child = content, Background = Brush("PanelBrush"), CornerRadius = new CornerRadius(10),
-        Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 10)
+        Name = name,
+        Child = content,
+        Style = (Style)System.Windows.Application.Current.FindResource("CardStyle"),
+        Padding = new Thickness(12, 10, 12, 10),
+        Margin = new Thickness(0, 0, 0, 9)
     };
 
     private static FrameworkElement Dot(Media.Brush color) => new System.Windows.Shapes.Ellipse
@@ -208,11 +238,13 @@ public sealed partial class StatisticsPanel
         row.Children.Add(Dot(color));
         var title = InsightUi.Text(label); title.Margin = new Thickness(0); Wpf.Grid.SetColumn(title, 1); row.Children.Add(title);
         var values = new Wpf.WrapPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
-        var number = InsightUi.Text(value); number.Name = name; number.Margin = new Thickness(0); number.FontWeight = FontWeights.SemiBold;
+        var number = InsightUi.Text(value, true); number.Name = name; number.FontSize = 12; number.Margin = new Thickness(0);
         values.Children.Add(number);
         if (extra.Length > 0)
         {
-            var detail = InsightUi.Text(extra); detail.Margin = new Thickness(6, 0, 0, 0); values.Children.Add(detail);
+            var detail = InsightUi.Text(extra); detail.Margin = new Thickness(6, 0, 0, 0);
+            detail.SetResourceReference(Wpf.TextBlock.ForegroundProperty, "TextMutedBrush");
+            values.Children.Add(detail);
         }
         Wpf.Grid.SetColumn(values, 2); row.Children.Add(values);
         return row;
@@ -220,13 +252,21 @@ public sealed partial class StatisticsPanel
 
     private static Wpf.Grid StackedBar(string name, (long Value, Media.Brush Color, string Tip)[] parts)
     {
-        var bar = new Wpf.Grid { Name = name, Height = 8, Margin = new Thickness(0, 0, 0, 7), Background = Brush("TrackBrush") };
-        foreach (var (value, color, tip) in parts.Where(x => x.Value > 0))
+        var bar = new Wpf.Grid { Name = name, Height = 8, Margin = new Thickness(0, 0, 0, 8), Background = Brush("TrackBrush") };
+        var nonZero = parts.Where(x => x.Value > 0).ToArray();
+        for (var i = 0; i < nonZero.Length; i++)
         {
-            var index = bar.ColumnDefinitions.Count;
+            var (value, color, tip) = nonZero[i];
             bar.ColumnDefinitions.Add(new() { Width = new GridLength(value, GridUnitType.Star) });
-            var segment = new Wpf.Border { Background = color, ToolTip = tip, Tag = value };
-            Wpf.Grid.SetColumn(segment, index); bar.Children.Add(segment);
+            var segment = new Wpf.Border
+            {
+                Background = color,
+                ToolTip = tip,
+                Tag = value,
+                Margin = i < nonZero.Length - 1 ? new Thickness(0, 0, 1.5, 0) : new Thickness(0)
+            };
+            Wpf.Grid.SetColumn(segment, i);
+            bar.Children.Add(segment);
         }
         bar.SizeChanged += (_, _) => bar.Clip = new Media.RectangleGeometry(new Rect(0, 0, bar.ActualWidth, bar.ActualHeight), 4, 4);
         return bar;

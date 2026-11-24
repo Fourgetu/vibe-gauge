@@ -21,12 +21,12 @@
 
 ## 下载与安装
 
-当前正式版：**v1.6.15**。
+当前正式版：**v1.6.16**。
 
 | 下载方式 | 文件与用途 |
 | --- | --- |
-| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.15/VibeGauge-Setup-v1.6.15.exe) | 当前用户安装包，适合日常使用 |
-| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.15/VibeGauge-Windows-x64-v1.6.15.zip) | 解压后运行，适合便携使用 |
+| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.16/VibeGauge-Setup-v1.6.16.exe) | 当前用户安装包，适合日常使用 |
+| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.16/VibeGauge-Windows-x64-v1.6.16.zip) | 解压后运行，适合便携使用 |
 | [正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/latest) | 更新说明、全部附件及 SHA-256 校验文件 |
 
 安装版和免安装版均自带运行时，**使用时无需另装 .NET 或 Python**。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
@@ -106,8 +106,8 @@ Claude / Gemini 桥接需要主动启用；修改配置前会备份，可在设�
 
 - 可拖动、缩放和固定窗口，保存窗口位置，支持紧凑布局与细滚动条。
 - 贴顶自动收起，悬停展开。
-- 深浅两套毛玻璃主题，优化背景层次、灰底白字选中态和文字对比。
-- 系统页提供透明度滑块，深色和浅色分别保存；窗口失去焦点后继续保持毛玻璃。
+- 支持跟随系统 / 深色 / 浅色毛玻璃主题与亚克力 / 云母 / 纯色三种窗口材质，保留白雾玻璃层次、高对比度清晰排版与 Win11 原生 1px 圆角边框。
+- 系统页提供透明度滑块（深色与浅色分别保存）和半透明磨砂开关；自绘毛玻璃托盘右键菜单与弹窗，多 DPI 像素对齐霓虹状态托盘图标；窗口失焦后继续保持毛玻璃。
 - 支持开机启动、客户端显示开关和语言选择。隐藏某个客户端只改变展示，不停止采集或删除其历史。
 
 ### 更多 Windows 桌面客户端
@@ -279,7 +279,7 @@ Windows 主程序、核心解析和代理代码位于 `windows/src`，自动化�
 
 | 主题 | 文档 |
 | --- | --- |
-| 当前正式版 | [v1.6.15 更新说明](docs/releases/v1.6.15.md) |
+| 当前正式版 | [v1.6.16 更新说明](docs/releases/v1.6.16.md) |
 | Codex Proxy RS | [配置、统计范围与排查](docs/windows-codex-proxy-rs.md) |
 | 软路由与控制器密钥 | [控制器接入说明](docs/windows-router-controller-2026-09-30.md) |
 | 统计与独立智能体用量 | [统计页说明](docs/windows-statistics-agents-2026-09-30.md) |

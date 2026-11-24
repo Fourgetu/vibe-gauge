@@ -64,7 +64,7 @@ internal static class StatisticsSummaryChecks
             var many = UsageStatistics.Build(records.Concat(Enumerable.Range(0, 6).Select(i =>
                 new InteractionRecord("extra-" + i, "Codex", "model-" + i, at, 100_000 * (i + 1), 50_000, 0, 1_000, 100))), DateTimeOffset.Now) with { Prices = prices };
             panel.Update(many, TokenUnit.International); panel.RefreshTheme(); Layout(window);
-            Assert.Equal(2, Models(panel).Length);
+            Assert.Equal(4, Models(panel).Length);
             Assert.Equal(2, Agents(panel).Length);
             Named<TextBlock>(panel, "StatsModelTitle").BringIntoView(); Layout(window);
             Capture(window, "stats-models-collapsed.png");
@@ -73,10 +73,10 @@ internal static class StatisticsSummaryChecks
             Assert.Equal(many.ForPeriod(panel.CurrentPeriod.Start, panel.CurrentPeriod.End).TotalTokens, Agents(panel).Sum(x => x.TotalTokens));
             Capture(window, "stats-models-expanded.png");
             UiLocalization.SetLanguage("en"); Layout(window);
-            Assert.Equal("Show top 2 models", Named<Button>(panel, "StatsModelsToggle").Content);
+            Assert.Equal("Show top 4 models", Named<Button>(panel, "StatsModelsToggle").Content);
             Named<Button>(panel, "StatsModelsToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout(window);
             Assert.Equal("Show all 8 models", Named<Button>(panel, "StatsModelsToggle").Content);
-            Assert.Equal(2, Models(panel).Length);
+            Assert.Equal(4, Models(panel).Length);
             UiLocalization.SetLanguage("zh"); panel.Update(stats, TokenUnit.International); Layout(window);
             Named<StackPanel>(panel, "StatsAgents").BringIntoView(); Layout(window);
             Capture(window, "stats-agents.png");

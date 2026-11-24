@@ -512,7 +512,7 @@ public sealed record PlatformRow(
             (x.ForecastText.Length > 0 ? "\n" + x.ForecastText : ""))).Where(x => x.Length > 0));
     public bool IsLocal => Tier == "Local" || Name is "Ollama" or "LM Studio" or "llama.cpp";
     public bool ShowTier => (Name != ClaudeDesktop.Name || HasQuota) && Tier is not ("未知" or "" or "未登录" or "未检测到" or "未安装") && (IsWide || Tier.Length <= 9 && Name.Length + Tier.Length <= 18);
-    public double TitleMaxWidth => IsWide ? 270 : ShowTier ? 85 : 120;
+    public double TitleMaxWidth => IsWide ? 270 : ShowTier ? 96 : 124;
     public bool HasSecondary => Quotas.Any(x => x.Secondary);
     public IEnumerable<QuotaRow> PrimaryQuotas => Quotas.Where(x => !x.Secondary);
     public IEnumerable<QuotaRow> SecondaryQuotas => Quotas.Where(x => x.Secondary);

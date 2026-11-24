@@ -25,11 +25,17 @@ internal static class SettingRows
     internal static StackPanel Card(Panel parent, string title)
     {
         var content = new StackPanel();
-        var heading = Label(title, 15, "TextMutedBrush", true);
+        var heading = Label(title, 14, "TextSecondaryBrush", true);
+        heading.FontFamily = (System.Windows.Media.FontFamily)Application.Current.FindResource("DisplayFontFamily");
         heading.Margin = new Thickness(0, 0, 0, 7);
         content.Children.Add(heading);
-        var border = new Border { Child = content, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 12, 14, 8), Margin = new Thickness(0, 0, 0, 10) };
-        border.SetResourceReference(Border.BackgroundProperty, "CardBrush");
+        var border = new Border
+        {
+            Child = content,
+            Style = (Style)Application.Current.FindResource("CardStyle"),
+            Padding = new Thickness(13, 11, 13, 8),
+            Margin = new Thickness(0, 0, 0, 9)
+        };
         parent.Children.Add(border);
         return content;
     }
@@ -48,7 +54,16 @@ internal static class SettingRows
     internal static void Navigate(Panel parent, string title, string description, Action open)
     {
         var row = Layout(title, description);
-        var arrow = Label("›", 22, "TextMutedBrush"); arrow.VerticalAlignment = VerticalAlignment.Center; arrow.HorizontalAlignment = HorizontalAlignment.Right;
+        var arrow = new TextBlock
+        {
+            Text = "\uE76C",
+            FontFamily = (System.Windows.Media.FontFamily)Application.Current.FindResource("IconFontFamily"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 0, 2, 0)
+        };
+        arrow.SetResourceReference(TextBlock.ForegroundProperty, "TextMutedBrush");
         Grid.SetColumn(arrow, 1); row.Children.Add(arrow);
         var button = new Button { Content = row, Padding = new Thickness(0), BorderThickness = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = System.Windows.Media.Brushes.Transparent,
@@ -59,12 +74,12 @@ internal static class SettingRows
 
     private static Grid Layout(string title, string description)
     {
-        var grid = new Grid { Margin = new Thickness(0, 6, 0, 8), Tag = "SettingRow" };
+        var grid = new Grid { Margin = new Thickness(0, 6, 0, 7), Tag = "SettingRow" };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var labels = new StackPanel { Margin = new Thickness(0, 0, 18, 0) };
-        labels.Children.Add(Label(title, 13.5, "TextPrimaryBrush", true));
-        var detail = Label(description, 11.5, "TextSecondaryBrush"); detail.Margin = new Thickness(0, 3, 0, 0); detail.LineHeight = 16;
+        labels.Children.Add(Label(title, 13, "TextPrimaryBrush", true));
+        var detail = Label(description, 11, "TextMutedBrush"); detail.Margin = new Thickness(0, 2.5, 0, 0); detail.LineHeight = 16;
         labels.Children.Add(detail); grid.Children.Add(labels);
         return grid;
     }
@@ -81,8 +96,13 @@ public sealed class LanguageSelector : UserControl
     public LanguageSelector()
     {
         var options = new StackPanel { Orientation = Orientation.Horizontal };
-        var surface = new Border { Child = options, CornerRadius = new CornerRadius(8), Padding = new Thickness(2), ToolTip = "语言 / Language" };
-        surface.SetResourceReference(Border.BackgroundProperty, "CardBrush"); Content = surface;
+        var surface = new Border
+        {
+            Child = options,
+            Style = (Style)Application.Current.FindResource("SegmentedHostStyle"),
+            ToolTip = "语言 / Language"
+        };
+        Content = surface;
         var group = "language-" + Guid.NewGuid().ToString("N");
         var buttons = new List<RadioButton>();
         foreach (var (title, code) in new[] { ("系统", "system"), ("中", "zh"), ("EN", "en") })

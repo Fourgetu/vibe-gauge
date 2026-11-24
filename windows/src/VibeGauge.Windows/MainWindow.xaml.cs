@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
+using Microsoft.Win32;
 using VibeGauge.Windows.Services;
 using VibeGauge.Windows.ViewModels;
 
@@ -13,27 +15,36 @@ public partial class MainWindow : Window
     private bool allowClose;
     private bool moving;
     private bool pinned;
+    private string themeMode;
+    private string backdropMode;
     private readonly WindowPlacementStore placement;
     private readonly ThemeSettings themeSettings;
     private readonly ThemePalette palette;
     private readonly TopEdgeAutoHide edgeHide;
     private readonly System.Windows.Threading.DispatcherTimer transparencySaveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private readonly System.Windows.Threading.DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromMilliseconds(2000) };
     private (bool Light, int Value)? pendingTransparency;
-    private bool syncingTransparency = true;
+    private bool syncingAppearance = true;
     private VibeGauge.Core.DashboardSnapshot? latestSnapshot;
     public bool IsLightTheme => palette.IsLight;
+    public string CurrentThemeMode => themeMode;
+    public string CurrentBackdropMode => backdropMode;
     public bool HasUserPosition { get; private set; }
     public bool UsesSystemBackdrop { get; private set; }
 
     public MainWindow(DashboardViewModel viewModel, bool autoHide = true)
     {
         themeSettings = new ThemeSettings(viewModel.Paths.LocalDataRoot);
+        themeMode = themeSettings.ThemeMode;
+        backdropMode = themeSettings.BackdropMode;
         palette = (ThemePalette)System.Windows.Application.Current.FindResource("ThemePalette");
-        palette.IsLight = themeSettings.IsLight;
+        palette.IsLight = ThemeSettings.ResolveIsLight(themeMode);
         palette.SetTransparency(true, themeSettings.GetTransparency(true));
         palette.SetTransparency(false, themeSettings.GetTransparency(false));
         InitializeComponent();
         transparencySaveTimer.Tick += (_, _) => SaveTransparency();
+        toastTimer.Tick += (_, _) => HideToast();
+        SystemEvents.UserPreferenceChanged += OnSystemPreferenceChanged;
         UpdateTheme();
         DataContext = this.viewModel = viewModel;
         placement = new WindowPlacementStore(viewModel.Paths.LocalDataRoot);
@@ -60,19 +71,80 @@ public partial class MainWindow : Window
             {
                 HeaderMemory.Visibility = ActualWidth >= 520 && viewModel.IsOverview ? Visibility.Visible : Visibility.Collapsed;
                 UpdateSelectedPanel();
+                AnimateViewTransition(viewModel.IsProviderDetailOpen ? ProviderDetailView : ContentHost);
             }
             if (e.PropertyName == nameof(viewModel.IsStatsSelected) && viewModel.IsStatsSelected ||
                 e.PropertyName == nameof(viewModel.IsApiSelected) && viewModel.IsApiSelected ||
                 e.PropertyName == nameof(viewModel.SelectedTokenUnit) ||
                 e.PropertyName == nameof(viewModel.IsSubscriptionSelected) && viewModel.IsSubscriptionSelected ||
                 e.PropertyName == nameof(viewModel.IsNetworkSelected) && viewModel.IsNetworkSelected)
+            {
                 UpdateSelectedPanel();
+                if (e.PropertyName != nameof(viewModel.SelectedTokenUnit)) AnimateViewTransition(ContentHost);
+            }
         };
         IsVisibleChanged += (_, _) => { viewModel.SetWindowVisible(IsVisible); if (IsVisible) UpdateSelectedPanel(); };
         if (autoHide) Deactivated += (_, _) =>
         {
             if (!pinned && !moving && !edgeHide.IsDocked && !IsMouseOver) Hide();
         };
+    }
+
+    private void OnSystemPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != UserPreferenceCategory.General || themeMode != "system") return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            var next = ThemeSettings.IsSystemLightTheme();
+            if (palette.IsLight == next) return;
+            palette.IsLight = next;
+            UpdateTheme();
+        });
+    }
+
+    private void AnimateViewTransition(UIElement target)
+    {
+        if (!IsActive || !SystemParameters.ClientAreaAnimation || !target.IsVisible) return;
+        target.BeginAnimation(OpacityProperty, new DoubleAnimation(0.84, 1, TimeSpan.FromMilliseconds(100))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    internal static void NotifyToast(string message)
+    {
+        var main = System.Windows.Application.Current?.Windows.OfType<MainWindow>().FirstOrDefault(w => w.IsVisible);
+        main?.ShowToast(message);
+    }
+
+    internal void ShowToast(string message)
+    {
+        toastTimer.Stop();
+        ToastMessage.Text = UiLocalization.Text(message);
+        ToastBanner.Visibility = Visibility.Visible;
+        if (SystemParameters.ClientAreaAnimation)
+        {
+            ToastBanner.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            });
+        }
+        else ToastBanner.Opacity = 1;
+        toastTimer.Start();
+    }
+
+    private void HideToast()
+    {
+        toastTimer.Stop();
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            ToastBanner.Opacity = 0;
+            ToastBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fade = new DoubleAnimation(ToastBanner.Opacity, 0, TimeSpan.FromMilliseconds(180));
+        fade.Completed += (_, _) => { if (ToastBanner.Opacity <= 0.01) ToastBanner.Visibility = Visibility.Collapsed; };
+        ToastBanner.BeginAnimation(OpacityProperty, fade);
     }
 
     private void UpdateSelectedPanel()
@@ -100,30 +172,61 @@ public partial class MainWindow : Window
         HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowMessage);
     }
 
-    private void Theme_Click(object sender, RoutedEventArgs e)
+    internal void ToggleThemeQuick()
     {
         SaveTransparency();
         palette.IsLight = !palette.IsLight;
+        themeMode = palette.IsLight ? "light" : "dark";
         themeSettings.Save(palette.IsLight);
+        UpdateTheme();
+    }
+
+    private void Theme_Click(object sender, RoutedEventArgs e) => ToggleThemeQuick();
+
+    private void ThemeMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (syncingAppearance || sender is not FrameworkElement { Tag: string mode }) return;
+        SaveTransparency();
+        themeMode = mode;
+        themeSettings.SaveThemeMode(mode);
+        palette.IsLight = ThemeSettings.ResolveIsLight(mode);
+        UpdateTheme();
+    }
+
+    private void BackdropMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (syncingAppearance || sender is not FrameworkElement { Tag: string mode }) return;
+        SaveTransparency();
+        backdropMode = mode;
+        themeSettings.SaveBackdropMode(mode);
         UpdateTheme();
     }
 
     internal void SetThemeForCapture(bool light)
     {
+        themeMode = light ? "light" : "dark";
         palette.IsLight = light;
         UpdateTheme();
     }
 
     private void UpdateTheme()
     {
-        UsesSystemBackdrop = WindowAppearance.Apply(this, palette.IsLight);
+        UsesSystemBackdrop = WindowAppearance.Apply(this, palette.IsLight, backdropMode);
         WindowSurface.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty,
             UsesSystemBackdrop ? "WindowTintBrush" : "WindowBrush");
-        syncingTransparency = true;
+        WindowSurface.SetResourceReference(System.Windows.Controls.Border.BorderBrushProperty,
+            UsesSystemBackdrop ? "WindowRimBrush" : "BorderStrongBrush");
+        syncingAppearance = true;
+        ThemeSystemRadio.IsChecked = themeMode == "system";
+        ThemeDarkRadio.IsChecked = themeMode == "dark";
+        ThemeLightRadio.IsChecked = themeMode == "light";
+        BackdropAcrylicRadio.IsChecked = backdropMode == "acrylic";
+        BackdropMicaRadio.IsChecked = backdropMode == "mica";
+        BackdropSolidRadio.IsChecked = backdropMode == "solid";
         TransparencySlider.Value = palette.GetTransparency(palette.IsLight);
         TransparencySlider.IsEnabled = UsesSystemBackdrop;
         TransparencyValue.Text = $"{TransparencySlider.Value:0}%";
-        syncingTransparency = false;
+        syncingAppearance = false;
         ThemeIcon.Text = palette.IsLight ? "\uE708" : "\uE706";
         ThemeButton.ToolTip = palette.IsLight ? "切换为深色毛玻璃" : "切换为浅色毛玻璃";
         System.Windows.Automation.AutomationProperties.SetName(ThemeButton, (string)ThemeButton.ToolTip);
@@ -133,7 +236,7 @@ public partial class MainWindow : Window
 
     private void Transparency_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (syncingTransparency) return;
+        if (syncingAppearance) return;
         var value = (int)Math.Round(e.NewValue);
         palette.SetTransparency(palette.IsLight, value);
         TransparencyValue.Text = $"{value}%";
@@ -177,6 +280,8 @@ public partial class MainWindow : Window
             Hide();
             return;
         }
+        SystemEvents.UserPreferenceChanged -= OnSystemPreferenceChanged;
+        toastTimer.Stop();
         viewModel.Dispose();
         base.OnClosing(e);
     }
@@ -211,8 +316,11 @@ public partial class MainWindow : Window
 
     private async void ToggleProxy_Click(object sender, RoutedEventArgs e) => await viewModel.ToggleProxyAsync();
 
-    private void CopyProxyPrefix_Click(object sender, RoutedEventArgs e) =>
+    private void CopyProxyPrefix_Click(object sender, RoutedEventArgs e)
+    {
         System.Windows.Clipboard.SetText(viewModel.ProxyEndpoint);
+        ShowToast("已复制代理前缀");
+    }
 
     private void ApiRange_Click(object sender, RoutedEventArgs e)
     {

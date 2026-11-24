@@ -8,27 +8,53 @@
         Topmost="True" Background="Transparent" AllowsTransparency="False"
         UseLayoutRounding="True" SnapsToDevicePixels="True" KeyDown="Window_KeyDown">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="66" ResizeBorderThickness="5" CornerRadius="8" GlassFrameThickness="0" UseAeroCaptionButtons="False" />
+        <shell:WindowChrome CaptionHeight="58" ResizeBorderThickness="5" CornerRadius="8" GlassFrameThickness="0" UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <Style x:Key="ToneTextStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
             <Style.Triggers>
                 <Trigger Property="Tag" Value="Good"><Setter Property="Foreground" Value="{StaticResource GoodBrush}" /></Trigger>
                 <Trigger Property="Tag" Value="Warning"><Setter Property="Foreground" Value="{StaticResource WarningBrush}" /></Trigger>
                 <Trigger Property="Tag" Value="Danger"><Setter Property="Foreground" Value="{StaticResource DangerBrush}" /></Trigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="RefreshIconStyle" TargetType="TextBlock">
+            <Setter Property="Text" Value="&#xE72C;" />
+            <Setter Property="FontFamily" Value="{StaticResource IconFontFamily}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value><RotateTransform Angle="0" /></Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="SpinRefresh">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                 From="0" To="360" Duration="0:0:0.9" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="SpinRefresh" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
     <Border x:Name="WindowSurface" Background="{StaticResource WindowBrush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1" CornerRadius="8">
         <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="66" /><RowDefinition Height="*" /><RowDefinition Height="45" /></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="58" /><RowDefinition Height="*" /><RowDefinition Height="44" /></Grid.RowDefinitions>
             <Grid x:Name="CaptionArea" Background="Transparent">
-                <Grid.RowDefinitions><RowDefinition Height="18" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <Border Width="32" Height="3" CornerRadius="2" Background="{StaticResource GripBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False" />
-                <Grid Grid.Row="1" Margin="15,0,10,10">
+                <Grid.RowDefinitions><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Border Width="34" Height="3" CornerRadius="1.5" Background="{StaticResource GripBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False" />
+                <Grid Grid.Row="1" Margin="14,0,10,8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <Border Background="{StaticResource CardBrush}" CornerRadius="7" Padding="2" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
+                    <Border Style="{StaticResource SegmentedHostStyle}" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="PlansTab" Content="订阅" GroupName="Navigation" Tag="0" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsSubscriptionSelected, Mode=OneWay}" Click="Nav_Click" />
                             <RadioButton Content="API" GroupName="Navigation" Tag="1" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApiSelected, Mode=OneWay}" Click="Nav_Click" />
@@ -39,26 +65,26 @@
                     </Border>
                     <TextBlock x:Name="HeaderMemory" Grid.Column="1" Text="{Binding HeaderMemoryText}" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="5,0,7,0" Visibility="Collapsed" />
                     <DockPanel Grid.ColumnSpan="2" Margin="0,0,8,0" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True" Visibility="{Binding IsProviderDetailOpen, Converter={StaticResource BoolToVisibility}}">
-                        <Button x:Name="ProviderBackButton" DockPanel.Dock="Left" Style="{StaticResource IconButtonStyle}" Click="ProviderBack_Click" ToolTip="返回订阅页" AutomationProperties.Name="返回订阅页"><TextBlock Text="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="14" /></Button>
-                        <TextBlock Text="{Binding SelectedProviderName}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="ProviderBackButton" DockPanel.Dock="Left" Style="{StaticResource IconButtonStyle}" Margin="0,0,4,0" Click="ProviderBack_Click" ToolTip="返回订阅页" AutomationProperties.Name="返回订阅页"><TextBlock Text="&#xE72B;" FontFamily="{StaticResource IconFontFamily}" FontSize="13.5" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></Button>
+                        <TextBlock Text="{Binding SelectedProviderName}" FontFamily="{StaticResource DisplayFontFamily}" FontSize="14.5" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </DockPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                        <Button x:Name="ThemeButton" Style="{StaticResource IconButtonStyle}" ToolTip="切换为浅色毛玻璃" AutomationProperties.Name="切换为浅色毛玻璃" Click="Theme_Click"><TextBlock x:Name="ThemeIcon" Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
-                        <Button Style="{StaticResource IconButtonStyle}" ToolTip="立即刷新" AutomationProperties.Name="立即刷新" Click="Refresh_Click"><TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
-                        <ToggleButton x:Name="PinButton" Style="{StaticResource PinStyle}" ToolTip="固定窗口，点击外部不收起" AutomationProperties.Name="固定窗口" Click="Pin_Click"><TextBlock Text="&#xE718;" FontFamily="Segoe MDL2 Assets" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}" /></ToggleButton>
-                        <Button Style="{StaticResource IconButtonStyle}" ToolTip="收起到托盘" AutomationProperties.Name="收起到托盘" Click="Hide_Click"><TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" /></Button>
+                        <Button x:Name="ThemeButton" Style="{StaticResource IconButtonStyle}" ToolTip="切换为浅色毛玻璃" AutomationProperties.Name="切换为浅色毛玻璃" Click="Theme_Click"><TextBlock x:Name="ThemeIcon" Text="&#xE706;" FontFamily="{StaticResource IconFontFamily}" FontSize="13.5" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></Button>
+                        <Button Style="{StaticResource IconButtonStyle}" ToolTip="立即刷新" AutomationProperties.Name="立即刷新" Click="Refresh_Click"><TextBlock Style="{StaticResource RefreshIconStyle}" /></Button>
+                        <ToggleButton x:Name="PinButton" Style="{StaticResource PinStyle}" ToolTip="固定窗口，点击外部不收起" AutomationProperties.Name="固定窗口" Click="Pin_Click"><TextBlock Text="&#xE718;" FontFamily="{StaticResource IconFontFamily}" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}" /></ToggleButton>
+                        <Button Style="{StaticResource IconButtonStyle}" ToolTip="收起到托盘" AutomationProperties.Name="收起到托盘" Click="Hide_Click"><TextBlock Text="&#xE8BB;" FontFamily="{StaticResource IconFontFamily}" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></Button>
                     </StackPanel>
                 </Grid>
             </Grid>
 
-            <Grid Grid.Row="1" Margin="15,0,10,0" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
+            <Grid x:Name="ContentHost" Grid.Row="1" Margin="14,0,9,0" Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibility}}">
                 <local:PlansPanel x:Name="PlansView" Visibility="{Binding IsSubscriptionSelected, Converter={StaticResource BoolToVisibility}}" />
                 <local:StatisticsPanel x:Name="StatisticsView" Visibility="{Binding IsStatsSelected, Converter={StaticResource BoolToVisibility}}" />
                 <local:NetworkPanel x:Name="NetworkView" Visibility="{Binding IsNetworkSelected, Converter={StaticResource BoolToVisibility}}" />
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="{Binding IsApiSelected, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel Margin="0,0,5,12">
-                        <TextBlock Text="API Proxy" Style="{StaticResource SectionTitleStyle}" Margin="0,2,0,10" />
+                        <TextBlock Text="API Proxy" Style="{StaticResource SectionTitleStyle}" Margin="0,2,0,9" />
                         <Border Style="{StaticResource CardStyle}">
                             <StackPanel>
                                 <Grid><TextBlock Text="{Binding ProxyStatusText}" FontWeight="SemiBold" Tag="{Binding ProxyTone}" Style="{StaticResource ToneTextStyle}" /><TextBlock Text="{Binding ProxyEndpoint}" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" /></Grid>
@@ -69,28 +95,28 @@
                                 </Grid>
                             </StackPanel>
                         </Border>
-                        <Grid Margin="0,18,0,10">
+                        <Grid Margin="0,16,0,9">
                             <TextBlock Text="API 使用量" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
-                            <Border Background="{StaticResource CardBrush}" CornerRadius="6" Padding="2" HorizontalAlignment="Right"><StackPanel Orientation="Horizontal">
+                            <Border Style="{StaticResource SegmentedHostStyle}" HorizontalAlignment="Right"><StackPanel Orientation="Horizontal">
                                 <RadioButton Content="今日" GroupName="ApiRange" Tag="today" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApiToday, Mode=OneWay}" Click="ApiRange_Click" />
                                 <RadioButton Content="7D" GroupName="ApiRange" Tag="7d" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApi7Days, Mode=OneWay}" Click="ApiRange_Click" />
                                 <RadioButton Content="30D" GroupName="ApiRange" Tag="30d" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApi30Days, Mode=OneWay}" Click="ApiRange_Click" />
                                 <RadioButton Content="全部" GroupName="ApiRange" Tag="all" Style="{StaticResource SegmentStyle}" IsChecked="{Binding IsApiAll, Mode=OneWay}" Click="ApiRange_Click" />
                             </StackPanel></Border>
                         </Grid>
-                        <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="{Binding ApiHeadline}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="{Binding ApiDetail}" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,5,0,0" TextWrapping="Wrap" /></StackPanel></Border>
-                        <TextBlock Text="服务商" Style="{StaticResource SectionTitleStyle}" Margin="0,17,0,8" Visibility="{Binding HasApiProviders, Converter={StaticResource BoolToVisibility}}" />
+                        <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="{Binding ApiHeadline}" FontFamily="{StaticResource DisplayFontFamily}" FontSize="17" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" /><TextBlock Text="{Binding ApiDetail}" Foreground="{StaticResource TextSecondaryBrush}" Typography.NumeralAlignment="Tabular" Margin="0,5,0,0" TextWrapping="Wrap" /></StackPanel></Border>
+                        <TextBlock Text="服务商" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,8" Visibility="{Binding HasApiProviders, Converter={StaticResource BoolToVisibility}}" />
                         <ItemsControl ItemsSource="{Binding ApiProviders}"><ItemsControl.ItemTemplate><DataTemplate>
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,6"><StackPanel>
-                                <Grid><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Calls}" HorizontalAlignment="Right" Foreground="{StaticResource GoodBrush}" /></Grid>
-                                <TextBlock Text="{Binding Metrics}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5" Margin="0,5,0,0" TextWrapping="Wrap" />
+                                <Grid><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Calls}" HorizontalAlignment="Right" Foreground="{StaticResource GoodBrush}" Typography.NumeralAlignment="Tabular" FontWeight="SemiBold" /></Grid>
+                                <TextBlock Text="{Binding Metrics}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11.5" Typography.NumeralAlignment="Tabular" Margin="0,5,0,0" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding CacheText}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" /><TextBlock Text="{Binding HealthText}" ToolTip="{Binding Detail}" Style="{StaticResource CaptionStyle}" Margin="0,3,0,0" />
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         <TextBlock Text="模型" Style="{StaticResource SectionTitleStyle}" Margin="0,10,0,8" Visibility="{Binding HasApiModels, Converter={StaticResource BoolToVisibility}}" />
                         <ItemsControl ItemsSource="{Binding ApiModels}"><ItemsControl.ItemTemplate><DataTemplate>
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,6"><StackPanel>
-                                <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding Calls}" Foreground="{StaticResource TextSecondaryBrush}" /><TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></DockPanel>
+                                <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding Calls}" Foreground="{StaticResource TextSecondaryBrush}" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></DockPanel>
                                 <TextBlock Text="{Binding Provider}" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding Metrics}" Style="{StaticResource CaptionStyle}" Margin="0,4,0,0" TextWrapping="Wrap" />
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -108,20 +134,44 @@
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="{Binding IsSystemSelected, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel Margin="0,0,5,12">
-                        <Grid Margin="0,2,0,10">
+                        <Grid Margin="0,2,0,9">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Text="系统资源" Style="{StaticResource SectionTitleStyle}" />
                             <TextBlock x:Name="SystemAppVersion" Grid.Column="1" Text="{Binding AppVersionText, StringFormat=VibeGauge {0}}" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" Margin="12,0,0,0" ToolTip="当前运行版本" />
                         </Grid>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7">
                             <StackPanel>
+                                <TextBlock Text="外观与材质" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <Grid Margin="0,0,0,7">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="主题" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                    <Border Grid.Column="1" Style="{StaticResource SegmentedHostStyle}" HorizontalAlignment="Right">
+                                        <StackPanel Orientation="Horizontal">
+                                            <RadioButton x:Name="ThemeSystemRadio" Content="跟随系统" GroupName="ThemeMode" Tag="system" Style="{StaticResource LanguageSegmentStyle}" Click="ThemeMode_Click" />
+                                            <RadioButton x:Name="ThemeDarkRadio" Content="深色" GroupName="ThemeMode" Tag="dark" Style="{StaticResource LanguageSegmentStyle}" Click="ThemeMode_Click" />
+                                            <RadioButton x:Name="ThemeLightRadio" Content="浅色" GroupName="ThemeMode" Tag="light" Style="{StaticResource LanguageSegmentStyle}" Click="ThemeMode_Click" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                                <Grid Margin="0,0,0,9">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="窗口材质" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                    <Border Grid.Column="1" Style="{StaticResource SegmentedHostStyle}" HorizontalAlignment="Right">
+                                        <StackPanel Orientation="Horizontal">
+                                            <RadioButton x:Name="BackdropAcrylicRadio" Content="亚克力" GroupName="BackdropMode" Tag="acrylic" Style="{StaticResource LanguageSegmentStyle}" Click="BackdropMode_Click" />
+                                            <RadioButton x:Name="BackdropMicaRadio" Content="云母" GroupName="BackdropMode" Tag="mica" Style="{StaticResource LanguageSegmentStyle}" Click="BackdropMode_Click" />
+                                            <RadioButton x:Name="BackdropSolidRadio" Content="纯色" GroupName="BackdropMode" Tag="solid" Style="{StaticResource LanguageSegmentStyle}" Click="BackdropMode_Click" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,0,0,8" />
                                 <DockPanel>
-                                    <TextBlock Text="毛玻璃透明度" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="TransparencyValue" HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" />
+                                    <TextBlock Text="毛玻璃透明度" Foreground="{StaticResource TextSecondaryBrush}" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="TransparencyValue" HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" Typography.NumeralAlignment="Tabular" />
                                 </DockPanel>
                                 <Slider x:Name="TransparencySlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                                         Style="{StaticResource TransparencySliderStyle}"
-                                        SmallChange="1" LargeChange="10" Margin="0,8,0,4" ValueChanged="Transparency_Changed"
+                                        SmallChange="1" LargeChange="10" Margin="0,6,0,3" ValueChanged="Transparency_Changed"
                                         AutomationProperties.Name="毛玻璃透明度" ToolTip="数值越大越通透，只调整背景；深浅色分别保存。" />
                                 <TextBlock Text="数值越大越通透，只调整背景；深浅色分别保存。" Style="{StaticResource CaptionStyle}" TextWrapping="Wrap" />
                             </StackPanel>
@@ -133,11 +183,11 @@
                                 <CheckBox x:Name="TokenUnitToggle" Grid.Column="1" Content="{Binding TokenUnitLabel}" IsChecked="{Binding UseInternationalTokens, Mode=TwoWay}" Style="{StaticResource ToggleStyle}" VerticalAlignment="Center" AutomationProperties.Name="切换 Token 显示单位" ToolTip="关闭：万 / 亿；开启：K / M / B。1K = 1,000，1M = 1,000,000，1B = 1,000,000,000 Token；不足 1K 显示原始数量。只改变显示，不改变统计。" />
                             </Grid>
                         </Border>
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="内存" FontWeight="SemiBold" /><TextBlock Text="{Binding MemoryText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding MemoryUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="系统磁盘" FontWeight="SemiBold" /><TextBlock Text="{Binding DiskText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding DiskUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,9,0,0" /></StackPanel></Border>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="内存" FontWeight="SemiBold" /><TextBlock Text="{Binding MemoryText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding MemoryUsedPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,8,0,0" /></StackPanel></Border>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7"><StackPanel><Grid><TextBlock Text="系统磁盘" FontWeight="SemiBold" /><TextBlock Text="{Binding DiskText}" HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" /></Grid><ProgressBar Value="{Binding DiskUsedPercent, Mode=OneWay}" Foreground="{StaticResource AccentBrush}" Style="{StaticResource CompactProgressStyle}" Margin="0,8,0,0" /></StackPanel></Border>
                         <UniformGrid Columns="2" Margin="0,0,0,8">
-                            <Border Style="{StaticResource CardStyle}" Margin="0,0,3,0"><StackPanel><TextBlock Text="CPU" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding CpuText}" FontSize="22" FontWeight="SemiBold" Margin="0,4,0,0" /></StackPanel></Border>
-                            <Border Style="{StaticResource CardStyle}" Margin="3,0,0,0"><StackPanel><TextBlock Text="虚拟内存" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding PageFileText}" FontWeight="SemiBold" Margin="0,7,0,0" /></StackPanel></Border>
+                            <Border Style="{StaticResource CardStyle}" Margin="0,0,3.5,0"><StackPanel><TextBlock Text="CPU" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding CpuText}" FontFamily="{StaticResource DisplayFontFamily}" FontSize="22" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" /></StackPanel></Border>
+                            <Border Style="{StaticResource CardStyle}" Margin="3.5,0,0,0"><StackPanel><TextBlock Text="虚拟内存" Style="{StaticResource CaptionStyle}" /><TextBlock Text="{Binding PageFileText}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Margin="0,8,0,0" /></StackPanel></Border>
                         </UniformGrid>
                         <Border Style="{StaticResource CardStyle}" Margin="0,0,0,7" ToolTip="收起订阅页中该客户端的卡片、来源明细、会话和近期记录；后台采集、今日总量和统计页不受影响。">
                             <StackPanel>
@@ -161,8 +211,20 @@
                 </ScrollViewer>
             </Grid>
 
-            <local:ProviderDetailPanel x:Name="ProviderDetailView" Grid.Row="1" Margin="15,0,10,0" Visibility="{Binding IsProviderDetailOpen, Converter={StaticResource BoolToVisibility}}" />
-            <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="15,5,15,0">
+            <local:ProviderDetailPanel x:Name="ProviderDetailView" Grid.Row="1" Margin="14,0,9,0" Visibility="{Binding IsProviderDetailOpen, Converter={StaticResource BoolToVisibility}}" />
+
+            <!-- Lightweight floating toast notification -->
+            <Border x:Name="ToastBanner" Grid.Row="1" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Margin="0,0,0,12" Padding="12,7" CornerRadius="16"
+                    Background="{StaticResource ToastBrush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"
+                    IsHitTestVisible="False" Visibility="Collapsed" Opacity="0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE73E;" FontFamily="{StaticResource IconFontFamily}" FontSize="12" Foreground="{StaticResource GoodBrush}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <TextBlock x:Name="ToastMessage" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Margin="14,4,14,0">
                 <DockPanel LastChildFill="True" VerticalAlignment="Center">
                     <Button DockPanel.Dock="Left" Content="退出 VibeGauge" Background="Transparent" BorderThickness="0" Padding="0,4" FontSize="12" Style="{StaticResource ActionButtonStyle}" Click="Exit_Click" />
                     <local:LanguageSelector DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0" />

@@ -328,10 +328,13 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
             installed.ToolTip = executable; panel.Children.Add(installed);
             var controls = new Wpf.WrapPanel();
             controls.Children.Add(InsightUi.Button("安装文档", (_, _) => Open(url)));
-            controls.Children.Add(InsightUi.Button("复制登录命令", (_, _) => System.Windows.Clipboard.SetText(login)));
-            controls.Children.Add(InsightUi.Button("复制状态命令", (_, _) => System.Windows.Clipboard.SetText(usage)));
-            if (name == "Ark CLI") controls.Children.Add(InsightUi.Button("复制 Windows 安装命令", (_, _) => System.Windows.Clipboard.SetText(
-                "$previousCI = $env:CI; try { $env:CI = '1'; npm install -g '@volcengine/ark-cli' } finally { $env:CI = $previousCI }")));
+            controls.Children.Add(InsightUi.Button("复制登录命令", (_, _) => { System.Windows.Clipboard.SetText(login); MainWindow.NotifyToast("已复制命令"); }));
+            controls.Children.Add(InsightUi.Button("复制状态命令", (_, _) => { System.Windows.Clipboard.SetText(usage); MainWindow.NotifyToast("已复制命令"); }));
+            if (name == "Ark CLI") controls.Children.Add(InsightUi.Button("复制 Windows 安装命令", (_, _) =>
+            {
+                System.Windows.Clipboard.SetText("$previousCI = $env:CI; try { $env:CI = '1'; npm install -g '@volcengine/ark-cli' } finally { $env:CI = $previousCI }");
+                MainWindow.NotifyToast("已复制命令");
+            }));
             panel.Children.Add(controls);
         }
         panel.Children.Add(InsightUi.Text("安装、登录均由你在终端确认；不执行 macOS 脚本，不自动登录。凭据过期时重新登录后刷新。"));

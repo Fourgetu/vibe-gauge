@@ -1,4 +1,7 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Forms = System.Windows.Forms;
@@ -13,6 +16,8 @@ public sealed class TrayIconManager : IDisposable
     private readonly DashboardViewModel viewModel;
     private readonly Forms.NotifyIcon icon;
     private Icon? currentIcon;
+    private TrayContextMenuWindow? contextMenu;
+    private int lastAvailablePercent;
     private readonly QuotaAlerts alerts;
     private readonly AttentionPolicy attention;
     private readonly Services.UpdateChecker updates;
@@ -24,28 +29,42 @@ public sealed class TrayIconManager : IDisposable
         alerts = new(viewModel.Paths);
         attention = new(viewModel.Paths);
         updates = new(viewModel.Paths);
-        var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("打开 VibeGauge", null, (_, _) => ShowWindow());
-        menu.Items.Add("立即刷新", null, async (_, _) => await viewModel.RefreshAsync());
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("退出", null, (_, _) => window.ExitApplication());
         icon = new Forms.NotifyIcon
         {
             Visible = true,
-            Text = "VibeGauge 正在读取数据",
-            ContextMenuStrip = menu
+            Text = "VibeGauge 正在读取数据"
         };
-        icon.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) ToggleWindow(); };
+        icon.MouseUp += (_, e) =>
+        {
+            if (e.Button == Forms.MouseButtons.Left) ToggleWindow();
+            else if (e.Button == Forms.MouseButtons.Right) ShowContextMenu();
+        };
         SetIcon(0);
+    }
+
+    private void ShowContextMenu()
+    {
+        try { contextMenu?.Close(); } catch { }
+        var summary = UiLocalization.IsEnglish
+            ? $"RAM {lastAvailablePercent}%"
+            : $"内存 {lastAvailablePercent}%";
+        contextMenu = new TrayContextMenuWindow(
+            summary,
+            window.IsLightTheme,
+            window.CurrentBackdropMode,
+            ShowWindow,
+            () => _ = viewModel.RefreshAsync(),
+            () => window.ToggleThemeQuick(),
+            () => window.ExitApplication());
+        contextMenu.ShowAtCursor();
     }
 
     public void Update(DashboardSnapshot snapshot)
     {
         var available = snapshot.System.AvailableMemoryPercent;
+        lastAvailablePercent = available;
         SetIcon(available);
         icon.Text = UiLocalization.IsEnglish ? $"VibeGauge · Memory free {available}% · {snapshot.Usage.Turns} calls today" : $"VibeGauge · 内存可用 {available}% · 今日 {snapshot.Usage.Turns} 次调用";
-        if (icon.ContextMenuStrip is { } menu)
-        { menu.Items[0].Text = UiLocalization.Text("打开 VibeGauge"); menu.Items[1].Text = UiLocalization.Text("立即刷新"); menu.Items[3].Text = UiLocalization.Text("退出"); }
         foreach (var message in attention.Evaluate(snapshot, FeaturePreferences.Load(viewModel.Paths)))
             icon.ShowBalloonTip(7000, "VibeGauge", UiLocalization.Text(message), Forms.ToolTipIcon.Warning);
         if (updates.Scan() is { } release && updates.TakeNotification(release))
@@ -109,37 +128,132 @@ public sealed class TrayIconManager : IDisposable
 
     public void Dispose()
     {
+        try { contextMenu?.Close(); } catch { }
         icon.Visible = false;
         icon.Dispose();
         currentIcon?.Dispose();
     }
 
-    private static class IconFactory
+    internal static class IconFactory
     {
+        private const int SmCxSmIcon = 49;
+
         internal static Icon Create(int percentage)
         {
-            using var bitmap = new Bitmap(64, 64, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            using (var graphics = Graphics.FromImage(bitmap))
-            {
-                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                graphics.Clear(Color.Transparent);
-                var fill = percentage < 15 ? Color.FromArgb(195, 52, 66) : percentage < 30 ? Color.FromArgb(194, 117, 17) : Color.FromArgb(24, 105, 89);
-                using var brush = new SolidBrush(fill);
-                using var pen = new Pen(Color.FromArgb(230, 32, 34, 37), 4);
-                graphics.FillRoundedRectangle(brush, new RectangleF(4, 8, 56, 48), 10);
-                graphics.DrawRoundedRectangle(pen, new RectangleF(4, 8, 56, 48), 10);
-                using var font = new Font("Segoe UI", percentage >= 100 ? 17 : 20, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
-                var text = percentage.ToString();
-                var size = graphics.MeasureString(text, font);
-                graphics.DrawString(text, font, Brushes.White, (64 - size.Width) / 2, (64 - size.Height) / 2 - 1);
-            }
+            var targetSize = Math.Clamp(GetSystemMetrics(SmCxSmIcon), 16, 48);
+            // Render at exact 1:1 native taskbar tray pixel dimensions so Explorer never downscales or blurs text.
+            using var bitmap = RenderBitmap(percentage, targetSize);
             var handle = bitmap.GetHicon();
             try { return (Icon)Icon.FromHandle(handle).Clone(); }
             finally { DestroyIcon(handle); }
         }
 
+        internal static Bitmap RenderBitmap(int percentage, int size)
+        {
+            var pct = Math.Clamp(percentage, 0, 100);
+            var bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.Clear(Color.Transparent);
+
+            // Dynamic neon accent gradient: cyan->emerald (healthy), gold->amber (warning), rose->crimson (critical)
+            var (accentStart, accentEnd) = pct < 15
+                ? (Color.FromArgb(255, 86, 122), Color.FromArgb(255, 36, 72))
+                : pct < 30
+                    ? (Color.FromArgb(255, 214, 64), Color.FromArgb(255, 130, 24))
+                    : (Color.FromArgb(40, 224, 255), Color.FromArgb(46, 244, 152));
+
+            var rect = new RectangleF(0.4f, 0.4f, size - 0.9f, size - 0.9f);
+            var radius = Math.Max(2.8f, size * 0.22f);
+            using var chassisPath = GraphicsExtensions.Rounded(rect, radius);
+
+            // Obsidian metallic HUD chassis echoing VibeGauge's dark titanium icon language
+            using (var chassisFill = new LinearGradientBrush(rect, Color.FromArgb(27, 34, 48), Color.FromArgb(11, 14, 21), 90f))
+                graphics.FillPath(chassisFill, chassisPath);
+
+            // Subtle OLED ambient neon underglow inside the lower half of the badge
+            using (var glowRegion = new Region(chassisPath))
+            {
+                var prevClip = graphics.Clip;
+                graphics.Clip = glowRegion;
+                var glowRect = new RectangleF(size * 0.05f, size * 0.48f, size * 0.90f, size * 0.65f);
+                using var glowPath = new GraphicsPath();
+                glowPath.AddEllipse(glowRect);
+                using var glowBrush = new PathGradientBrush(glowPath)
+                {
+                    CenterColor = Color.FromArgb(52, accentEnd),
+                    SurroundColors = [Color.FromArgb(0, accentStart)]
+                };
+                graphics.FillPath(glowBrush, glowPath);
+                graphics.Clip = prevClip;
+            }
+
+            // Crisp neon perimeter rim
+            var rimWidth = Math.Max(1f, size * 0.068f);
+            using (var rimBrush = new LinearGradientBrush(rect, Color.FromArgb(190, accentStart), Color.FromArgb(230, accentEnd), 45f))
+            using (var rimPen = new Pen(rimBrush, rimWidth))
+                graphics.DrawPath(rimPen, chassisPath);
+
+            // Live glowing neon gauge bar along bottom edge
+            var barH = Math.Max(1.8f, size * 0.12f);
+            var barPadX = Math.Max(2.4f, size * 0.15f);
+            var barY = size - barH - Math.Max(1.6f, size * 0.105f);
+            var barW = size - barPadX * 2f;
+            var trackRect = new RectangleF(barPadX, barY, barW, barH);
+            using (var trackPath = GraphicsExtensions.Rounded(trackRect, barH / 2f))
+            using (var trackBrush = new SolidBrush(Color.FromArgb(56, 70, 92)))
+                graphics.FillPath(trackBrush, trackPath);
+
+            if (pct > 0)
+            {
+                var fillW = Math.Max(barH, barW * pct / 100f);
+                var fillRect = new RectangleF(barPadX, barY, fillW, barH);
+                using var fillPath = GraphicsExtensions.Rounded(fillRect, barH / 2f);
+                using var fillBrush = new LinearGradientBrush(trackRect, accentStart, accentEnd, 0f);
+                graphics.FillPath(fillBrush, fillPath);
+            }
+
+            // Razor-sharp pure-white digits centered cleanly above the neon gauge bar
+            var text = pct.ToString();
+            var ratio = text.Length >= 3 ? 0.50f : text.Length == 1 ? 0.64f : 0.58f;
+            var fontSize = Math.Max(8.5f, size * ratio);
+            graphics.TextRenderingHint = fontSize < 12.5f
+                ? TextRenderingHint.SingleBitPerPixelGridFit
+                : TextRenderingHint.AntiAliasGridFit;
+
+            var family = PickDigitFont(text.Length >= 3);
+            using var font = new Font(family, fontSize, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
+            using var format = new StringFormat(StringFormat.GenericTypographic)
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces
+            };
+
+            var offsetY = -size * 0.075f + (size <= 16 ? 0.5f : 0f);
+            graphics.DrawString(text, font, Brushes.White, new RectangleF(0f, offsetY, size, size), format);
+            return bitmap;
+        }
+
+        private static string PickDigitFont(bool condensed)
+        {
+            if (condensed)
+            {
+                using var families = new InstalledFontCollection();
+                if (families.Families.Any(f => f.Name.Equals("Arial Narrow", StringComparison.OrdinalIgnoreCase)))
+                    return "Arial Narrow";
+                if (families.Families.Any(f => f.Name.Equals("Bahnschrift Condensed", StringComparison.OrdinalIgnoreCase)))
+                    return "Bahnschrift Condensed";
+            }
+            return "Segoe UI";
+        }
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr handle);
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
     }
 }
 
@@ -157,10 +271,10 @@ internal static class GraphicsExtensions
         graphics.DrawPath(pen, path);
     }
 
-    private static System.Drawing.Drawing2D.GraphicsPath Rounded(RectangleF bounds, float radius)
+    internal static GraphicsPath Rounded(RectangleF bounds, float radius)
     {
         var diameter = radius * 2;
-        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var path = new GraphicsPath();
         path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
         path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
         path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);

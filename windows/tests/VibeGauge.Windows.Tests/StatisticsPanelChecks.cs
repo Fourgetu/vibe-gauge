@@ -68,16 +68,14 @@ internal static class StatisticsPanelChecks
         Assert.Null(panel.SelectedDate);
         Assert.Equal("today-only", Assert.Single(Models(panel)).Model);
         Click(panel, "StatsRange_all");
-        Assert.Equal(2, Models(panel).Length);
-        Click(panel, "StatsModelsToggle");
         Assert.Equal(3, Models(panel).Length);
+        Assert.DoesNotContain(Elements<Button>(panel), x => x.Name == "StatsModelsToggle");
         Assert.Equal(800, panel.CurrentPeriod.Context);
         Assert.Equal(Formatting.Tokens(890), Named<TextBlock>(panel, "StatsTotalTokens").Text);
-        Click(panel, "StatsModelsToggle");
 
         var many = UsageStatistics.Build(Enumerable.Range(0, 15).Select(i => Record(today, "model-" + i, i + 50)), DateTimeOffset.Now);
         panel.Update(many);
-        Assert.Equal(2, Models(panel).Length);
+        Assert.Equal(4, Models(panel).Length);
         Assert.Equal(panel.CurrentPeriod.TotalTokens, Named<Grid>(panel, "StatsModelBar").Children.OfType<Border>().Sum(x => (long)x.Tag));
         var summaryBeforeExpansion = Named<TextBlock>(panel, "StatsTotalTokens");
         Click(panel, "StatsModelsToggle");
@@ -95,7 +93,7 @@ internal static class StatisticsPanelChecks
         Assert.Equal(15, Models(panel).Length);
         Assert.NotSame(unchangedHeading, Named<TextBlock>(panel, "StatsTotalTokens"));
         Click(panel, "StatsModelsToggle");
-        Assert.Equal(2, Models(panel).Length);
+        Assert.Equal(4, Models(panel).Length);
         Assert.Equal(panel.CurrentPeriod.TotalTokens, Elements<TextBlock>(panel).Where(x => x.Tag is UsageSourceSummary).Sum(x => ((UsageSourceSummary)x.Tag).TotalTokens));
         foreach (var width in new[] { 385, 500 })
         {

@@ -222,9 +222,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
             label.TextAlignment = TextAlignment.Center;
             column.Children.Add(label);
             var ring = new Wpf.Grid { Width = 76, Height = 76, Margin = new Thickness(0, 3, 0, 4) };
-            var track = Brush("TextSecondaryBrush").Clone();
-            track.Opacity = .18;
-            ring.Children.Add(new Shapes.Ellipse { Stroke = track, StrokeThickness = 7, Margin = new Thickness(.5) });
+            ring.Children.Add(new Shapes.Ellipse { Stroke = Brush("TrackBrush"), StrokeThickness = 7, Margin = new Thickness(.5) });
             if (!stale && pct >= 100) ring.Children.Add(new Shapes.Ellipse { Stroke = color, StrokeThickness = 7, Margin = new Thickness(.5) });
             else if (!stale)
             {
@@ -236,6 +234,7 @@ public sealed class ProviderDetailPanel : Wpf.UserControl
                     StrokeStartLineCap = Media.PenLineCap.Round, StrokeEndLineCap = Media.PenLineCap.Round });
             }
             var value = InsightUi.Text(stale ? "—" : $"{pct}%", true);
+            value.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
             value.FontSize = 19;
             value.Foreground = stale ? Brush("TextMutedBrush") : used > 80 ? color : Brush("TextPrimaryBrush");
             value.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;

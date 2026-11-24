@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Documents;
 using VibeGauge.Core;
 using VibeGauge.Windows.Services;
 using Wpf = System.Windows.Controls;
@@ -29,10 +30,9 @@ public sealed class NetworkPanel : Wpf.UserControl
     public NetworkPanel(bool automaticStatus)
     {
         var body = new Wpf.StackPanel { Margin = new Thickness(0, 0, 5, 12) };
-        var header = new Wpf.DockPanel { Margin = new Thickness(2, 0, 0, 5) };
-        var refresh = new Wpf.Button { Name = "NetworkRefresh", Content = "↻", FontSize = 21,
-            ToolTip = "完整诊断", Style = (Style)System.Windows.Application.Current.FindResource("IconButtonStyle") };
-        AutomationProperties.SetName(refresh, "完整诊断");
+        var header = new Wpf.DockPanel { Margin = new Thickness(2, 0, 0, 4) };
+        var refresh = InsightUi.IconButton("\uE72C", "完整诊断", async (_, _) => { }, fontSize: 13.5);
+        refresh.Name = "NetworkRefresh";
         refresh.Click += async (_, _) =>
         {
             refresh.IsEnabled = false;
@@ -44,15 +44,17 @@ public sealed class NetworkPanel : Wpf.UserControl
             finally { refresh.IsEnabled = true; }
         };
         Wpf.DockPanel.SetDock(refresh, Wpf.Dock.Right); header.Children.Add(refresh);
-        header.Children.Add(Label("网络", 15, primary: true, bold: true));
+        var title = Label("网络", 15, primary: true, bold: true);
+        title.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
+        header.Children.Add(title);
         body.Children.Add(header);
-        summary.Name = "NetworkSummary"; summary.Margin = new Thickness(2, 0, 2, 12);
+        summary.Name = "NetworkSummary"; summary.Margin = new Thickness(2, 0, 2, 10);
         body.Children.Add(summary);
 
         var egressCard = Card(body, "AI 出口", "NetworkEgressCard");
         egressCard.Children.Add(exits);
-        var note = Label("本应用探测到的出口；使用独立代理的客户端可能不同。", 10.5);
-        note.Margin = new Thickness(0, 5, 0, 0); egressCard.Children.Add(note);
+        var note = Label("本应用探测到的出口；使用独立代理的客户端可能不同。", 10.5, muted: true);
+        note.Margin = new Thickness(0, 4, 0, 0); egressCard.Children.Add(note);
         var proxyCard = Card(body, "代理内核", "NetworkProxyCard");
         proxyCard.Children.Add(proxy);
         proxyDetails = Disclosure("全部代理组与连接", proxyRows, "NetworkProxyDetails"); proxyCard.Children.Add(proxyDetails);
@@ -60,10 +62,10 @@ public sealed class NetworkPanel : Wpf.UserControl
         localCard.Children.Add(local);
         adapterDetails = Disclosure("全部网卡", adapterRows, "NetworkAdapterDetails"); localCard.Children.Add(adapterDetails);
         Card(body, "网络体检", "NetworkHealthCard").Children.Add(health);
-        health.Children.Add(Label("尚未探测，点击右侧刷新", 11));
+        health.Children.Add(Label("尚未探测，点击右侧刷新", 11, muted: true));
 
         var diagnosticBody = new Wpf.StackPanel();
-        var actions = new Wpf.WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var actions = new Wpf.WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
         foreach (var ipv6 in new[] { false, true })
             actions.Children.Add(InsightUi.Button(ipv6 ? "检查 IPv6 直连" : "检测出口", async (sender, _) =>
             {
@@ -115,7 +117,7 @@ public sealed class NetworkPanel : Wpf.UserControl
         HealthRow("DNS", report.DnsVerdict, report.DnsSummary);
         HealthRow("IPv6", report.Ipv6Verdict, report.Ipv6);
         details.Children.Clear();
-        details.Children.Add(Label($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}", 11));
+        details.Children.Add(Label($"诊断时间 {report.CapturedAt.LocalDateTime:MM-dd HH:mm:ss}", 11, muted: true));
         foreach (var exit in report.Exits) InsightUi.Row(details, exit.Provider, ExitDetail(exit));
         InsightUi.Row(details, "DNS / IPv6", report.Dns + "\n" + report.Ipv6);
         if (report.Local.Count > 0) InsightUi.Row(details, "Wi-Fi / Tailscale", string.Join("\n", report.Local));
@@ -126,8 +128,8 @@ public sealed class NetworkPanel : Wpf.UserControl
     {
         var status = verdict switch { "warning" => "需关注", "managed" => "代理接管特征", "unavailable" => "未发现直连", _ => "无法判定" };
         var text = Label(title + " · " + status, 12, bold: true);
-        text.SetResourceReference(Wpf.TextBlock.ForegroundProperty, verdict == "warning" ? "WarningBrush" : "TextSecondaryBrush");
-        health.Children.Add(text); health.Children.Add(Label(message, 10.5));
+        text.SetResourceReference(Wpf.TextBlock.ForegroundProperty, verdict == "warning" ? "WarningBrush" : verdict == "managed" ? "GoodBrush" : "TextSecondaryBrush");
+        health.Children.Add(text); health.Children.Add(Label(message, 10.5, muted: true));
     }
 
     private void RenderExits(NetworkDiagnosticsReport? report)
@@ -137,12 +139,12 @@ public sealed class NetworkPanel : Wpf.UserControl
             .Append(new("Gemini", "gemini.google.com", "", "", "", "")).ToArray();
         foreach (var exit in entries)
         {
-            var row = new Wpf.StackPanel { Margin = new Thickness(0, 0, 0, 8), ToolTip = ExitDetail(exit) };
+            var row = new Wpf.StackPanel { Margin = new Thickness(0, 0, 0, 7), ToolTip = ExitDetail(exit) };
             var isGemini = exit.Provider == "Gemini";
             var hasError = exit.Error.Length > 0;
             var value = report is null ? "尚未探测" : hasError ? (isGemini ? "未取得连接链" : "探测失败") :
                 isGemini ? "基于活动连接" : exit.Ip;
-            var top = Pair(exit.Provider, value, 124, bold: true);
+            var top = Pair(exit.Provider, value, 118, bold: true);
             row.Children.Add(top);
             var caption = report is null ? "等待刷新" : hasError ? exit.Error : isGemini ? FirstChain(exit.Chain) :
                 string.Join(" · ", new[] { exit.Region, exit.Colo }.Where(x => x.Length > 0));
@@ -150,10 +152,10 @@ public sealed class NetworkPanel : Wpf.UserControl
             var bottom = new Wpf.Grid();
             bottom.ColumnDefinitions.Add(new Wpf.ColumnDefinition());
             bottom.ColumnDefinitions.Add(new Wpf.ColumnDefinition { Width = GridLength.Auto });
-            var meta = Label(string.Join(" · ", new[] { exit.LatencyMs is { } ms ? $"{ms} ms" : "", Age(exit.CapturedAt) }.Where(x => x.Length > 0)), 10.5);
-            meta.Margin = new Thickness(8, 2, 0, 0); Wpf.Grid.SetColumn(meta, 1);
+            var meta = Label(string.Join(" · ", new[] { exit.LatencyMs is { } ms ? $"{ms} ms" : "", Age(exit.CapturedAt) }.Where(x => x.Length > 0)), 10.5, muted: true);
+            meta.Margin = new Thickness(8, 1, 0, 0); Wpf.Grid.SetColumn(meta, 1);
             // Long controller errors and routes remain available in the tooltip and details.
-            var sub = Label(caption, 11); sub.TextWrapping = TextWrapping.NoWrap; sub.TextTrimming = TextTrimming.CharacterEllipsis;
+            var sub = Label(caption, 11, muted: true); sub.TextWrapping = TextWrapping.NoWrap; sub.TextTrimming = TextTrimming.CharacterEllipsis;
             bottom.Children.Add(sub); bottom.Children.Add(meta); row.Children.Add(bottom); exits.Children.Add(row);
         }
     }
@@ -162,7 +164,7 @@ public sealed class NetworkPanel : Wpf.UserControl
     {
         proxy.Children.Clear(); proxyRows.Children.Clear();
         proxyDetails.Visibility = report?.Proxy.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (report is null) { proxy.Children.Add(Label("等待刷新")); return; }
+        if (report is null) { proxy.Children.Add(Label("等待刷新", muted: true)); return; }
         var rows = report.Proxy;
         var groups = rows.Where(x => x.StartsWith("代理组 ", StringComparison.Ordinal)).ToArray();
         var errors = rows.Where(x => x.StartsWith("proxies：", StringComparison.Ordinal) || x.StartsWith("connections：", StringComparison.Ordinal)).ToArray();
@@ -173,7 +175,7 @@ public sealed class NetworkPanel : Wpf.UserControl
         proxy.Children.Add(state);
         foreach (var scope in rows.Where(x => x.StartsWith("软路由", StringComparison.Ordinal)))
         {
-            var scopeLabel = Label(scope, 10.5); scopeLabel.ToolTip = scope;
+            var scopeLabel = Label(scope, 10.5, muted: true); scopeLabel.ToolTip = scope;
             scopeLabel.TextWrapping = TextWrapping.NoWrap; scopeLabel.TextTrimming = TextTrimming.CharacterEllipsis;
             proxy.Children.Add(scopeLabel);
         }
@@ -201,7 +203,7 @@ public sealed class NetworkPanel : Wpf.UserControl
         // Prefer a physical adapter with a gateway; do not sum tunnel traffic twice.
         var primary = lastAdapters.OrderByDescending(x => x.Gateway.Length > 0)
             .ThenByDescending(x => x.Kind is "Ethernet" or "Wireless80211").FirstOrDefault();
-        if (primary is null) { local.Children.Add(Label("未检测到活动网卡")); return; }
+        if (primary is null) { local.Children.Add(Label("未检测到活动网卡", muted: true)); return; }
         var addresses = primary.Addresses.Split(" · ").Select(x => IPAddress.TryParse(x, out var ip) ? ip : null).Where(x => x is not null).ToArray();
         local.Children.Add(Pair("网关", (primary.Gateway.Length > 0 ? primary.Gateway : "—") + " · " + primary.Name, 70));
         local.Children.Add(Pair("IPv4", string.Join(", ", addresses.Where(x => x!.AddressFamily == AddressFamily.InterNetwork)), 70));
@@ -235,11 +237,12 @@ public sealed class NetworkPanel : Wpf.UserControl
     private static string ExitDetail(EgressInfo exit) => exit.Host + "\n" + (exit.Error.Length > 0 ? exit.Error : exit.Chain.Length > 0 ? exit.Chain : $"{exit.Ip} · {exit.Region} · {exit.Colo}") +
         (exit.LatencyMs is { } ms ? $" · {ms} ms" : "") + (exit.CapturedAt is { } captured ? $" · 采集 {captured.LocalDateTime:MM-dd HH:mm:ss}" : "");
 
-    private static Wpf.TextBlock Label(string text, double size = 12, bool primary = false, bool bold = false)
+    private static Wpf.TextBlock Label(string text, double size = 12, bool primary = false, bool bold = false, bool muted = false)
     {
         var label = new Wpf.TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap,
-            FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Margin = new Thickness(0, 2, 0, 2) };
-        label.SetResourceReference(Wpf.TextBlock.ForegroundProperty, primary ? "TextPrimaryBrush" : "TextSecondaryBrush");
+            FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Margin = new Thickness(0, 1.5, 0, 1.5) };
+        label.SetResourceReference(Wpf.TextBlock.ForegroundProperty, primary ? "TextPrimaryBrush" : muted ? "TextMutedBrush" : "TextSecondaryBrush");
+        Typography.SetNumeralAlignment(label, FontNumeralAlignment.Tabular);
         return label;
     }
     private static Wpf.Grid Pair(string name, string value, double labelWidth, bool bold = false)
@@ -248,24 +251,38 @@ public sealed class NetworkPanel : Wpf.UserControl
         row.ColumnDefinitions.Add(new Wpf.ColumnDefinition { Width = new GridLength(labelWidth) });
         row.ColumnDefinitions.Add(new Wpf.ColumnDefinition());
         var title = Label(name, 12, primary: true, bold: true);
-        title.Margin = new Thickness(0, 2, 8, 2); row.Children.Add(title);
+        title.Margin = new Thickness(0, 1.5, 8, 1.5); row.Children.Add(title);
         var text = Label(value, 12, primary: bold, bold: bold);
         text.ToolTip = value; text.TextWrapping = TextWrapping.NoWrap; text.TextTrimming = TextTrimming.CharacterEllipsis;
-        if (bold) text.FontFamily = new Media.FontFamily("Consolas");
         Wpf.Grid.SetColumn(text, 1); row.Children.Add(text); return row;
     }
     private static Wpf.StackPanel Card(Wpf.Panel parent, string title, string name)
     {
         var content = new Wpf.StackPanel();
-        var heading = Label(title, 14, bold: true); heading.Margin = new Thickness(0, 0, 0, 8); content.Children.Add(heading);
-        var card = new Wpf.Border { Name = name, Child = content, CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(13, 12, 13, 10), Margin = new Thickness(0, 0, 0, 10) };
-        card.SetResourceReference(Wpf.Border.BackgroundProperty, "CardBrush"); parent.Children.Add(card); return content;
+        var heading = Label(title, 13.5, bold: true);
+        heading.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
+        heading.Margin = new Thickness(0, 0, 0, 7); content.Children.Add(heading);
+        var card = new Wpf.Border
+        {
+            Name = name,
+            Child = content,
+            Style = (Style)System.Windows.Application.Current.FindResource("CardStyle"),
+            Padding = new Thickness(12, 10, 12, 9),
+            Margin = new Thickness(0, 0, 0, 9)
+        };
+        parent.Children.Add(card); return content;
     }
     private static Wpf.Expander Disclosure(string title, Wpf.StackPanel content, string name)
     {
-        var expander = new Wpf.Expander { Name = name, Header = title, Content = content, FontSize = 11,
-            Margin = new Thickness(0, 5, 0, 0), HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch };
-        expander.SetResourceReference(Wpf.Control.ForegroundProperty, "TextSecondaryBrush"); return expander;
+        var expander = new Wpf.Expander
+        {
+            Name = name,
+            Header = title,
+            Content = content,
+            Style = (Style)System.Windows.Application.Current.FindResource("DisclosureExpanderStyle"),
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch
+        };
+        return expander;
     }
 }

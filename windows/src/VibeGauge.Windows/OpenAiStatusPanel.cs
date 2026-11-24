@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Threading;
 using VibeGauge.Core;
 using Wpf = System.Windows.Controls;
@@ -26,11 +27,11 @@ public sealed class OpenAiStatusPanel : Wpf.UserControl
         this.automatic = automatic; this.fetch = fetch;
         var body = new Wpf.StackPanel();
         var heading = new Wpf.DockPanel();
-        refresh = InsightUi.Button("↻", async (_, _) => await RefreshAsync());
-        refresh.ToolTip = "刷新 OpenAI 官方状态";
-        System.Windows.Automation.AutomationProperties.SetName(refresh, "刷新 OpenAI 官方状态");
+        refresh = InsightUi.IconButton("\uE72C", "刷新 OpenAI 官方状态", async (_, _) => await RefreshAsync(), fontSize: 12.5);
         Wpf.DockPanel.SetDock(refresh, Wpf.Dock.Right); heading.Children.Add(refresh);
-        var title = Text("OpenAI 官方运行状态", 13, true);
+        var title = Text("OpenAI 官方运行状态", 13.5, true);
+        title.FontFamily = (Media.FontFamily)System.Windows.Application.Current.FindResource("DisplayFontFamily");
+        title.VerticalAlignment = VerticalAlignment.Center;
         heading.Children.Add(title); body.Children.Add(heading); body.Children.Add(note); body.Children.Add(rows);
         var footer = new Wpf.DockPanel { Margin = new Thickness(0, 9, 0, 0) };
         var link = InsightUi.Button("官方网站 ↗", (_, _) =>
@@ -38,11 +39,17 @@ public sealed class OpenAiStatusPanel : Wpf.UserControl
             try { Process.Start(new ProcessStartInfo(OpenAiStatus.Url) { UseShellExecute = true }); }
             catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { note.Text = "无法打开默认浏览器"; }
         });
+        link.Margin = new Thickness(8, 0, 0, 0);
         Wpf.DockPanel.SetDock(link, Wpf.Dock.Right); footer.Children.Add(link);
         footer.Children.Add(Text("全球服务状态 · 非本机连通性\n绿色 正常 · 黄色 降级 · 红色 中断", 9.5));
         body.Children.Add(footer);
-        var card = new Wpf.Border { Child = body, CornerRadius = new CornerRadius(9), Padding = new Thickness(12), Margin = new Thickness(0, 10, 0, 0) };
-        card.SetResourceReference(Wpf.Border.BackgroundProperty, "CardBrush");
+        var card = new Wpf.Border
+        {
+            Child = body,
+            Style = (Style)System.Windows.Application.Current.FindResource("CardStyle"),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 8, 0, 0)
+        };
         Content = card;
         Loaded += (_, _) => VisibilityChanged();
         IsVisibleChanged += (_, _) => VisibilityChanged();
@@ -92,12 +99,12 @@ public sealed class OpenAiStatusPanel : Wpf.UserControl
         rows.Children.Clear();
         foreach (var group in snapshot.Groups)
         {
-            var children = new Wpf.StackPanel { Margin = new Thickness(8, 5, 0, 0) };
+            var children = new Wpf.StackPanel { Margin = new Thickness(8, 4, 0, 0) };
             var header = Row(group);
             var expander = new Wpf.Expander { Tag = group.Id, Header = header, Content = children,
                 Style = (Style)FindResource("StatusGroupStyle"),
                 HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
-                Margin = new Thickness(0, 6, 0, 4) };
+                Margin = new Thickness(0, 5, 0, 3) };
             expander.SetResourceReference(Wpf.Control.ForegroundProperty, "TextPrimaryBrush");
             // Component histories are created only when requested, keeping the collapsed page small.
             expander.Expanded += (_, _) =>
@@ -111,12 +118,13 @@ public sealed class OpenAiStatusPanel : Wpf.UserControl
 
     private static Wpf.StackPanel Row(ServiceStatusRow row)
     {
-        var body = new Wpf.StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var body = new Wpf.StackPanel { Margin = new Thickness(0, 0, 0, 5) };
         var header = new Wpf.DockPanel { LastChildFill = true, ToolTip = Label(row.Health) };
         var uptime = Text(row.Uptime is { } percent ? $"{percent:0.00}%" : "", 11);
         uptime.ToolTip = "官方公布的区间可用率";
         Wpf.DockPanel.SetDock(uptime, Wpf.Dock.Right); header.Children.Add(uptime);
-        var dot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = Color(row.Health), Margin = new Thickness(0, 0, 6, 0), ToolTip = Label(row.Health) };
+        var dot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Margin = new Thickness(0, 0, 6, 0), ToolTip = Label(row.Health) };
+        dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, ColorResourceKey(row.Health));
         Wpf.DockPanel.SetDock(dot, Wpf.Dock.Left); header.Children.Add(dot);
         var labels = new Wpf.WrapPanel();
         labels.Children.Add(Text(row.Name, 12, true));
@@ -133,29 +141,40 @@ public sealed class OpenAiStatusPanel : Wpf.UserControl
             {
                 var tooltip = $"{day.Date:yyyy-MM-dd} UTC · {Label(day.Health)}" +
                     (day.Incidents.Count > 0 ? "\n" + string.Join("\n", day.Incidents) : "");
-                bars.Children.Add(new Wpf.Border { Background = Color(day.Health), CornerRadius = new CornerRadius(.8),
-                    Margin = new Thickness(0, 0, 1, 0), ToolTip = tooltip });
+                var bar = new Wpf.Border
+                {
+                    CornerRadius = new CornerRadius(1),
+                    Margin = new Thickness(0, 0, 1, 0),
+                    ToolTip = tooltip
+                };
+                bar.SetResourceReference(Wpf.Border.BackgroundProperty, ColorResourceKey(day.Health));
+                bars.Children.Add(bar);
             }
             body.Children.Add(bars);
             bars.ToolTip = $"{row.Days[0].Date:yyyy-MM-dd} – {row.Days[^1].Date:yyyy-MM-dd} UTC";
         }
         return body;
     }
+
     private static Wpf.TextBlock Text(string text, double size, bool bold = false)
     {
         var value = new Wpf.TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap,
-            FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Margin = new Thickness(0, 2, 0, 2) };
-        value.SetResourceReference(Wpf.TextBlock.ForegroundProperty, bold ? "TextPrimaryBrush" : "TextMutedBrush"); return value;
+            FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Margin = new Thickness(0, 1.5, 0, 1.5) };
+        value.SetResourceReference(Wpf.TextBlock.ForegroundProperty, bold ? "TextPrimaryBrush" : "TextMutedBrush");
+        Typography.SetNumeralAlignment(value, FontNumeralAlignment.Tabular);
+        return value;
     }
-    private static Media.Brush Color(ServiceHealth health) => health switch
+
+    private static string ColorResourceKey(ServiceHealth health) => health switch
     {
-        ServiceHealth.Operational => Media.Brushes.MediumSeaGreen,
-        ServiceHealth.Degraded => Media.Brushes.Goldenrod,
-        ServiceHealth.PartialOutage => Media.Brushes.DarkOrange,
-        ServiceHealth.Outage => Media.Brushes.IndianRed,
-        ServiceHealth.Maintenance => Media.Brushes.CornflowerBlue,
-        _ => Media.Brushes.Gray
+        ServiceHealth.Operational => "GoodBrush",
+        ServiceHealth.Degraded => "WarningBrush",
+        ServiceHealth.PartialOutage => "StatusOrangeBrush",
+        ServiceHealth.Outage => "DangerBrush",
+        ServiceHealth.Maintenance => "AccentBrush",
+        _ => "MutedBrush"
     };
+
     private static string Label(ServiceHealth health) => health switch
     {
         ServiceHealth.Operational => "运行正常", ServiceHealth.Degraded => "性能下降",

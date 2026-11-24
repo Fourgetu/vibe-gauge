@@ -8,8 +8,29 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Stretch" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><ContentPresenter /></ControlTemplate></Setter.Value></Setter>
             <Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Cursor" Value="Arrow" /></Trigger></Style.Triggers>
+        </Style>
+        <Style x:Key="InteractiveCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
+            <Setter Property="Padding" Value="10,8" />
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{StaticResource CardHoverBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="True" />
+                        <Condition Binding="{Binding IsPressed, RelativeSource={RelativeSource AncestorType=Button}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Opacity" Value="0.84" />
+                </MultiDataTrigger>
+            </Style.Triggers>
         </Style>
         <Style x:Key="DotStyle" TargetType="Ellipse">
             <Setter Property="Fill" Value="{StaticResource MutedBrush}" />
@@ -29,15 +50,15 @@
         <DataTemplate x:Key="QuotaMeter">
             <StackPanel Orientation="Horizontal" Margin="0,3,8,2">
                 <TextBlock Text="{Binding Label}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <ProgressBar Width="24" Height="4" Margin="5,0,5,0" VerticalAlignment="Center" Value="{Binding Percent, Mode=OneWay}" Tag="{Binding Tone}" Style="{StaticResource QuotaProgress}" />
-                <TextBlock Text="{Binding PercentText}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <ProgressBar Width="34" Height="4.5" Margin="5,0,5,0" VerticalAlignment="Center" Value="{Binding Percent, Mode=OneWay}" Tag="{Binding Tone}" Style="{StaticResource QuotaProgress}" />
+                <TextBlock Text="{Binding PercentText}" FontSize="11" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" />
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
     <ScrollViewer x:Name="PlansScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Border Background="{StaticResource PanelBrush}" CornerRadius="10" Padding="13,11" Margin="0,0,5,10">
+        <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12,11" Margin="0,0,5,10">
             <StackPanel>
-                <Grid Margin="0,0,0,11">
+                <Grid Margin="0,0,0,10">
                     <TextBlock Text="AI 运行与大模型" Style="{StaticResource SectionTitleStyle}" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Ellipse Width="6" Height="6" Fill="{StaticResource GoodBrush}" Margin="0,0,6,0" />
@@ -48,28 +69,28 @@
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><local:ProviderCardPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate><DataTemplate>
                         <Button Style="{StaticResource ProviderCardActionStyle}" IsEnabled="{Binding CanOpenDetail}" Click="Provider_Click" AutomationProperties.Name="{Binding Name, StringFormat=查看 {0} 详情}">
-                        <Border Style="{StaticResource CardStyle}" Padding="10,8" ToolTip="{Binding FullTooltip}" ToolTipService.ShowOnDisabled="True" ToolTipService.InitialShowDelay="350" ToolTipService.ShowDuration="60000">
+                        <Border Style="{StaticResource InteractiveCardStyle}" ToolTip="{Binding FullTooltip}" ToolTipService.ShowOnDisabled="True" ToolTipService.InitialShowDelay="350" ToolTipService.ShowDuration="60000">
                             <StackPanel>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,4">
-                                    <TextBlock DockPanel.Dock="Right" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="9" Foreground="{StaticResource TextMutedBrush}" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding CanOpenDetail, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="&#xE76C;" FontFamily="{StaticResource IconFontFamily}" FontSize="9" Foreground="{StaticResource TextSecondaryBrush}" Margin="4,0,0,0" VerticalAlignment="Center" Visibility="{Binding CanOpenDetail, Converter={StaticResource BoolToVisibility}}" />
                                     <!-- Keep provider identity ahead of optional session text in narrow cards. -->
                                     <Ellipse DockPanel.Dock="Left" Width="6" Height="6" Margin="0,0,5,0" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" />
                                     <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5" MaxWidth="{Binding TitleMaxWidth}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    <Border DockPanel.Dock="Left" CornerRadius="3" Padding="4,1" Margin="5,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowTier, Converter={StaticResource BoolToVisibility}}">
+                                    <Border DockPanel.Dock="Left" CornerRadius="4" Padding="4.5,1" Margin="4,0,0,0" VerticalAlignment="Center" Visibility="{Binding ShowTier, Converter={StaticResource BoolToVisibility}}">
                                         <Border.Style><Style TargetType="Border"><Setter Property="Background" Value="{StaticResource GoodDimBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Background" Value="{StaticResource LocalDimBrush}" /></DataTrigger></Style.Triggers></Style></Border.Style>
-                                        <TextBlock Text="{Binding Tier}" FontSize="10.5" FontWeight="Bold" MaxWidth="100" TextTrimming="CharacterEllipsis">
+                                        <TextBlock Text="{Binding Tier}" FontSize="10" FontWeight="SemiBold" MaxWidth="100" TextTrimming="CharacterEllipsis">
                                             <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource GoodBrush}" /><Style.Triggers><DataTrigger Binding="{Binding IsLocal}" Value="True"><Setter Property="Foreground" Value="{StaticResource LocalBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                                         </TextBlock>
                                     </Border>
-                                    <TextBlock Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="5,0,0,0" />
+                                    <TextBlock Text="{Binding SessionText}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="4,0,0,0" />
                                 </DockPanel>
-                                <TextBlock Text="{Binding CompactQuotaSummary}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding ShowCompactQuotas, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding CompactQuotaSummary}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Typography.NumeralAlignment="Tabular" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding ShowCompactQuotas, Converter={StaticResource BoolToVisibility}}" />
                                 <ItemsControl ItemsSource="{Binding Quotas}" Visibility="{Binding ShowQuotaRings, Converter={StaticResource BoolToVisibility}}" Margin="0,5,0,0">
                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate><DataTemplate>
                                         <StackPanel Margin="0,0,12,0" ToolTip="{Binding Tooltip}">
                                             <local:QuotaRing />
-                                            <TextBlock Text="{Binding Label}" FontSize="10.5" TextAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                                            <TextBlock Text="{Binding Label}" FontSize="10.5" TextAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,1,0,0" />
                                         </StackPanel>
                                     </DataTemplate></ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -81,12 +102,12 @@
                                     </ItemsControl>
                                     <ItemsControl Grid.Column="1" ItemsSource="{Binding SecondaryQuotas}" ItemTemplate="{StaticResource QuotaMeter}" Visibility="{Binding HasSecondary, Converter={StaticResource BoolToVisibility}}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel></ItemsControl>
                                 </Grid>
-                                <TextBlock Text="{Binding ForecastSummary}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,1" Visibility="{Binding ShowForecast, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding ForecastSummary}" FontSize="10.5" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" Margin="0,3,0,1" Visibility="{Binding ShowForecast, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" /><Style.Triggers><DataTrigger Binding="{Binding ForecastWarning}" Value="True"><Setter Property="Foreground" Value="{StaticResource WarningBrush}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                                 </TextBlock>
-                                <TextBlock Text="{Binding ResetSummary}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding ShowReset, Converter={StaticResource BoolToVisibility}}" />
-                                <TextBlock Text="{Binding TrustSummary}" Foreground="{StaticResource WarningBrush}" FontSize="10.5" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding HasTrustNote, Converter={StaticResource BoolToVisibility}}" />
-                                <TextBlock Text="{Binding DisplayDetail}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,3,0,0" Visibility="{Binding ShowDetail, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding ResetSummary}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" Margin="0,2,0,0" Visibility="{Binding ShowReset, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding TrustSummary}" Foreground="{StaticResource WarningBrush}" FontSize="10.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" Visibility="{Binding HasTrustNote, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding DisplayDetail}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Typography.NumeralAlignment="Tabular" Margin="0,3,0,0" Visibility="{Binding ShowDetail, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Style.Triggers><DataTrigger Binding="{Binding IsCompact}" Value="True"><Setter Property="TextWrapping" Value="NoWrap" /><Setter Property="TextTrimming" Value="CharacterEllipsis" /><Setter Property="MaxHeight" Value="34" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                                 </TextBlock>
                             </StackPanel>
@@ -99,8 +120,8 @@
                 <local:SessionsPanel x:Name="SessionsView" Margin="0,11,0,0" />
                 <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,11,0,11" />
                 <DockPanel x:Name="UsageSummaryHeading" LastChildFill="True">
-                    <Border DockPanel.Dock="Right" Background="{StaticResource GoodDimBrush}" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"><TextBlock Text="{Binding CacheHitText, StringFormat=缓存 {0}}" Foreground="{StaticResource GoodBrush}" FontWeight="SemiBold" FontSize="12" /></Border>
-                    <WrapPanel VerticalAlignment="Center" ToolTip="已读取的客户端今日用量（包含已收起的客户端）；未记录不等于实际用量为零。总 Token = 上下文 + 输出，缓存不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" /><TextBlock Text="{Binding TotalTokensText}" FontSize="16" FontWeight="Bold" Margin="9,0,0,0" /></WrapPanel>
+                    <Border DockPanel.Dock="Right" Background="{StaticResource GoodDimBrush}" CornerRadius="5" Padding="7,2.5" Margin="8,0,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding CacheHitText, StringFormat=缓存 {0}}" Foreground="{StaticResource GoodBrush}" FontWeight="SemiBold" FontSize="11.5" Typography.NumeralAlignment="Tabular" /></Border>
+                    <WrapPanel VerticalAlignment="Center" ToolTip="已读取的客户端今日用量（包含已收起的客户端）；未记录不等于实际用量为零。总 Token = 上下文 + 输出，缓存不重复相加。"><TextBlock Text="今日总 Token" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" /><TextBlock Text="{Binding TotalTokensText}" FontFamily="{StaticResource DisplayFontFamily}" FontSize="16.5" FontWeight="Bold" Typography.NumeralAlignment="Tabular" Margin="9,0,0,0" VerticalAlignment="Center" /></WrapPanel>
                 </DockPanel>
                 <ProgressBar Value="{Binding CacheHitPercent, Mode=OneWay}" Style="{StaticResource CompactProgressStyle}" Margin="0,8,0,7" ToolTip="上下文缓存命中率" />
                 <DockPanel LastChildFill="True">
@@ -109,16 +130,19 @@
                 </DockPanel>
                 <local:ProjectUsagePanel x:Name="ProjectsView" />
                 <ItemsControl ItemsSource="{Binding UsageSources}" Margin="0,9,0,4"><ItemsControl.ItemTemplate><DataTemplate>
-                    <DockPanel Margin="0,3"><TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Width="92" Margin="0,0,6,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" FontSize="11" /><StackPanel><TextBlock Text="{Binding TotalText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap" Visibility="{Binding HasUsage, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Metrics}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" ToolTip="{Binding Metrics}" /></StackPanel></DockPanel>
+                    <DockPanel Margin="0,3"><TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" Width="92" Margin="0,0,6,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" FontSize="11" /><StackPanel><TextBlock Text="{Binding TotalText}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" Visibility="{Binding HasUsage, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Metrics}" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" ToolTip="{Binding Metrics}" /></StackPanel></DockPanel>
                 </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
 
-                <Border Background="{StaticResource CardBrush}" CornerRadius="8" Padding="10,9" Margin="0,8,0,0">
+                <Border Style="{StaticResource CardStyle}" Padding="10,9" Margin="0,8,0,0">
                     <StackPanel>
-                        <Grid Margin="0,0,0,8"><StackPanel Orientation="Horizontal"><Ellipse Fill="{StaticResource GoodBrush}" Width="6" Height="6" Margin="0,0,6,0" /><TextBlock Text="Live" FontWeight="SemiBold" FontSize="13" /></StackPanel><TextBlock Text="最近 3 个完整轮次" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" /></Grid>
+                        <Grid Margin="0,0,0,8"><StackPanel Orientation="Horizontal"><Ellipse Fill="{StaticResource GoodBrush}" Width="6" Height="6" Margin="0,0,6,0" /><TextBlock Text="Live" FontWeight="SemiBold" FontSize="13" /></StackPanel><TextBlock Text="最近 3 个完整轮次" Style="{StaticResource CaptionStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid>
                         <ItemsControl ItemsSource="{Binding Recent}"><ItemsControl.ItemTemplate><DataTemplate>
-                            <Border Background="{StaticResource SubtleSurfaceBrush}" CornerRadius="6" Margin="0,0,0,5" Padding="8,6"><StackPanel>
-                                <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding CacheText}" Foreground="{StaticResource GoodBrush}" FontSize="11" FontWeight="SemiBold" /><StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" Margin="0,0,5,0" /><TextBlock Text="{Binding Model}" FontWeight="SemiBold" FontSize="12" /><TextBlock Text="{Binding Time, StringFormat= · {0}}" Style="{StaticResource CaptionStyle}" Margin="5,0,0,0" /></StackPanel></DockPanel>
-                                <TextBlock Text="{Binding Metrics}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            <Border Background="{StaticResource SubtleSurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Margin="0,0,0,5" Padding="8,6"><StackPanel>
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Right" Background="{StaticResource GoodDimBrush}" CornerRadius="4" Padding="5,1" VerticalAlignment="Center"><TextBlock Text="{Binding CacheText}" Foreground="{StaticResource GoodBrush}" FontSize="10.5" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" /></Border>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Ellipse Width="6" Height="6" Tag="{Binding Tone}" Style="{StaticResource DotStyle}" Margin="0,0,5,0" /><TextBlock Text="{Binding Model}" FontWeight="SemiBold" FontSize="12" /><TextBlock Text="{Binding Time, StringFormat= · {0}}" Style="{StaticResource CaptionStyle}" Margin="4,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                </DockPanel>
+                                <TextBlock Text="{Binding Metrics}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" TextWrapping="Wrap" />
                             </StackPanel></Border>
                         </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
                         <TextBlock Text="暂无完整轮次" Style="{StaticResource CaptionStyle}" Margin="0,6" Visibility="{Binding HasNoRecent, Converter={StaticResource BoolToVisibility}}" />

@@ -137,8 +137,8 @@ public sealed class UsageKeysPanel : Wpf.UserControl
             if (DataContext is DashboardViewModel vm && vm.Paths.Home != new VibeGauge.Core.AppPaths().Home) return;
             foreach (var key in UsageKeyVault.List())
             {
-                var row = new Wpf.DockPanel();
-                var remove = InsightUi.Button("×", async (_, _) =>
+                var row = new Wpf.DockPanel { Margin = new Thickness(0, 4, 0, 2) };
+                var remove = InsightUi.IconButton("\uE711", "删除已登记密钥", async (_, _) =>
                 {
                     try
                     {
@@ -146,8 +146,8 @@ public sealed class UsageKeysPanel : Wpf.UserControl
                         if (DataContext is DashboardViewModel viewModel) { viewModel.InvalidateOfficial(); await viewModel.RefreshAsync(); }
                     }
                     catch (Exception e) { LocalizedMessageBox.Show("删除失败：" + e.GetType().Name, "VibeGauge"); }
-                });
-                remove.ToolTip = "删除已登记密钥";
+                }, fontSize: 10.5);
+                remove.VerticalAlignment = VerticalAlignment.Center;
                 Wpf.DockPanel.SetDock(remove, Wpf.Dock.Right); row.Children.Add(remove);
                 var text = InsightUi.Text(key.DisplayName + " · " + key.Fingerprint + (key.IsCustom ? "\n" + key.Host + " · " + (key.IsCodexProxyRs ? CodexProxyRsParser.Kind : "sub2api") : ""));
                 text.ToolTip = key.Host;
