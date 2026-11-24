@@ -63,12 +63,13 @@ internal sealed class AntigravityQuotaClient(AppPaths paths)
     private async Task<AntigravityQuota?> ReadStatusAsync(string exe, string shell, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var nonce = Guid.NewGuid().ToString("N");
         using var pipe = new NamedPipeServerStream("vg-agy-" + nonce, PipeDirection.In, 1, PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         // agy emits plan_tier only in console mode. A per-process override leaves the user's settings alone.
-        var start = new ProcessStartInfo(exe) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = paths.Home };
+        var start = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = paths.Home };
+        start.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"] = "1";
         start.ArgumentList.Add("--settings");
         // agy's Windows command runner cannot reliably round-trip a quoted executable/argument.
         // The encoded script is fixed except for our random pipe name; no user data is executable.
