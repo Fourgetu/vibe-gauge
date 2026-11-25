@@ -52,4 +52,25 @@ public sealed class LightweightRefreshTests
         Assert.Empty(result.Orphans); Assert.Empty(result.ProtectedReasons);
         Assert.NotNull(result.ProviderProcesses);
     }
+
+    [Fact]
+    public void HiddenWindowSlowsFullScanIntervalAndRestoresWhenVisible()
+    {
+        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "VibeGauge-backoff-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var paths = new AppPaths(root, System.IO.Path.Combine(root, "local"));
+            using var proxy = new ProxyManager(paths);
+            using var vm = new DashboardViewModel(new DashboardCoordinator(paths, proxy), new StartupRegistrar(), proxy, new ProxySettings());
+            var timerField = typeof(DashboardViewModel).GetField("timer", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var timer = (System.Windows.Threading.DispatcherTimer)timerField.GetValue(vm)!;
+            vm.SetWindowVisible(true);
+            Assert.Equal(TimeSpan.FromSeconds(5), timer.Interval);
+            vm.SetWindowVisible(false);
+            Assert.Equal(TimeSpan.FromSeconds(30), timer.Interval);
+            vm.SetWindowVisible(true);
+            Assert.Equal(TimeSpan.FromSeconds(5), timer.Interval);
+        }
+        finally { if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true); }
+    }
 }

@@ -44,13 +44,13 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet test failed: $LASTEXITCODE" }
 & $dotnet publish (Join-Path $windows 'src\VibeGauge.Windows\VibeGauge.Windows.csproj') `
     -c Release -r win-x64 --self-contained true -o $publish `
     -p:Version=$version -p:PublishSingleFile=true -p:PublishTrimmed=false `
-    -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugSymbols=false
+    -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugSymbols=false -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed: $LASTEXITCODE" }
 
 & $dotnet publish (Join-Path $windows 'src\VibeGauge.Proxy\VibeGauge.Proxy.csproj') `
     -c Release -r win-x64 --self-contained true -o $proxyPublish `
-    -p:Version=$version -p:PublishSingleFile=true -p:PublishTrimmed=false `
-    -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugSymbols=false
+    -p:Version=$version -p:PublishSingleFile=true -p:PublishTrimmed=true -p:TrimMode=full `
+    -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugSymbols=false -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "proxy publish failed: $LASTEXITCODE" }
 Copy-Item (Join-Path $proxyPublish 'VibeGauge.Proxy.exe') $publish
 

@@ -30,4 +30,32 @@ public sealed class ReaderAllocationTests
         Assert.Equal(complete.Length, end);
         Assert.Equal((accepted.TrimEnd('\r', '\n'), (long)Encoding.UTF8.GetByteCount(ignored)), Assert.Single(lines));
     }
+
+    [Fact]
+    public void UnchangedUsageScanReusesSummaryAndInvalidatesOnChange()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "VibeGauge-memo-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var paths = new AppPaths(root, Path.Combine(root, "local"));
+            var claudeDir = Path.Combine(paths.ClaudeRoot, "projects", "demo");
+            Directory.CreateDirectory(claudeDir);
+            var logPath = Path.Combine(claudeDir, "s1.jsonl");
+            var ts = DateTimeOffset.Now.ToString("O");
+            File.WriteAllText(logPath, $"{{\"type\":\"assistant\",\"requestId\":\"r1\",\"timestamp\":\"{ts}\",\"message\":{{\"model\":\"claude-sonnet-4\",\"usage\":{{\"input_tokens\":100,\"output_tokens\":20}}}}}}\n");
+            var scanner = new UsageScanner(paths);
+            var first = scanner.Scan();
+            var second = scanner.Scan();
+            Assert.Same(first, second);
+            File.AppendAllText(logPath, $"{{\"type\":\"assistant\",\"requestId\":\"r2\",\"timestamp\":\"{ts}\",\"message\":{{\"model\":\"claude-sonnet-4\",\"usage\":{{\"input_tokens\":50,\"output_tokens\":10}}}}}}\n");
+            var third = scanner.Scan();
+            Assert.NotSame(second, third);
+            Assert.Equal(2, third.Cli.Turns);
+            var pricesPath = Path.Combine(paths.LocalDataRoot, "prices.json");
+            File.WriteAllText(pricesPath, "{\"claude-sonnet-4\":{\"input\":3,\"output\":15}}");
+            var fourth = scanner.Scan();
+            Assert.NotSame(third, fourth);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
 }

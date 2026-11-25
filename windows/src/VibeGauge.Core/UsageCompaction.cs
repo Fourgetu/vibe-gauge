@@ -31,16 +31,17 @@ public sealed partial class UsageScanner
         state.PackedRecords = "";
         coldDirty = true;
     }
-    private void CompactHistory(DateTimeOffset now)
+    private bool CompactHistory(DateTimeOffset now)
     {
         var cutoff = new DateTimeOffset(now.LocalDateTime.Date.AddDays(-90));
         if (!coldDirty && cache.ColdTimeZone == TimeZoneInfo.Local.Id &&
-            !cache.Files.Values.Any(s => CanCompact(s) && s.Records.Values.Any(x => x.Timestamp < cutoff))) return;
+            !cache.Files.Values.Any(s => CanCompact(s) && s.Records.Values.Any(x => x.Timestamp < cutoff))) return false;
         sourceRecords.Clear();
         if (!cache.Files.Values.Any(s => CanCompact(s) && (s.PackedRecords.Length > 0 || s.Records.Values.Any(x => x.Timestamp < cutoff))))
         {
+            var changed = coldDirty;
             if (coldDirty) { cache.ColdStatistics = null; cache.ColdTotals.Clear(); cache.ColdBloom = []; cacheDirty = true; coldDirty = false; }
-            cache.ColdTimeZone = TimeZoneInfo.Local.Id; return;
+            cache.ColdTimeZone = TimeZoneInfo.Local.Id; return changed;
         }
 
         // Keep a single pre-migration snapshot. Archives retain exact replay identities;
@@ -73,6 +74,7 @@ public sealed partial class UsageScanner
         }
         coldDirty = false;
         cacheDirty = true;
+        return true;
     }
     private UsageSourceSummary WithColdTotal(UsageSourceSummary current)
     {

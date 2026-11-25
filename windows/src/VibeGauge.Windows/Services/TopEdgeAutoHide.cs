@@ -36,6 +36,7 @@ internal sealed class TopEdgeAutoHide : IDisposable
     internal bool IsDocked { get; private set; }
     internal bool IsCollapsed { get; private set; }
     internal bool IsAnimating => animating;
+    internal event Action<bool>? CollapsedChanged;
     internal static readonly TimeSpan AnimationDuration = TimeSpan.FromMilliseconds(240);
     internal double PlacementTop => IsDocked ? expandedTop : window.Top;
     private IntPtr Handle => new WindowInteropHelper(window).Handle;
@@ -79,7 +80,9 @@ internal sealed class TopEdgeAutoHide : IDisposable
         // Keep only a two-pixel activation strip, regardless of display scaling.
         hiddenTop = expandedTop + (screen.Top + 2 - (monitor.WorkingArea.Top + rect.Bottom - rect.Top)) / scale;
         targetTop = expandedTop;
+        var wasCollapsed = IsCollapsed;
         IsCollapsed = animating = false;
+        if (wasCollapsed) CollapsedChanged?.Invoke(false);
         lastInside = Environment.TickCount64;
         if (window.IsVisible && pollPointer) timer.Start();
     }
@@ -87,10 +90,12 @@ internal sealed class TopEdgeAutoHide : IDisposable
     internal void Reveal()
     {
         StopAnimation();
+        var wasCollapsed = IsCollapsed;
         IsCollapsed = false;
         if (IsDocked) window.Top = targetTop = expandedTop;
         ClearClip();
         lastInside = Environment.TickCount64;
+        if (wasCollapsed) CollapsedChanged?.Invoke(false);
     }
 
     internal void UpdatePointer(System.Drawing.Point cursor, long now, bool interactionInProgress = false)
@@ -113,6 +118,7 @@ internal sealed class TopEdgeAutoHide : IDisposable
     private void SetCollapsed(bool value)
     {
         StopAnimation();
+        var changed = IsCollapsed != value;
         IsCollapsed = value;
         animationStartTop = window.Top;
         targetTop = value ? hiddenTop : expandedTop;
@@ -125,6 +131,7 @@ internal sealed class TopEdgeAutoHide : IDisposable
         if (!clipDuringAnimation) ClearClip();
         CompositionTarget.Rendering += RenderFrame;
         renderingSubscribed = true;
+        if (changed) CollapsedChanged?.Invoke(value);
     }
 
     private void Tick(object? sender, EventArgs e)

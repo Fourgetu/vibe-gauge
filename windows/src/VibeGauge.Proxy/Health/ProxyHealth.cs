@@ -1,4 +1,18 @@
+using System.Text.Json.Serialization;
+
 namespace VibeGauge.Proxy.Health;
+
+public sealed record ProxyHealthSnapshot(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("product")] string Product,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("port")] int Port,
+    [property: JsonPropertyName("upstream")] string Upstream,
+    [property: JsonPropertyName("upstream_error")] string UpstreamError,
+    [property: JsonPropertyName("uptimeSeconds")] long UptimeSeconds,
+    [property: JsonPropertyName("requests")] long Requests,
+    [property: JsonPropertyName("parsed")] long Parsed,
+    [property: JsonPropertyName("errors")] long Errors);
 
 public sealed class ProxyHealth(int port, string? route = null, string routeError = "")
 {
@@ -14,17 +28,15 @@ public sealed class ProxyHealth(int port, string? route = null, string routeErro
         if (error) Interlocked.Increment(ref errors);
     }
 
-    public object Snapshot() => new
-    {
-        status = "ok",
-        product = "VibeGauge.Proxy",
-        version = typeof(ProxyHealth).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+    public ProxyHealthSnapshot Snapshot() => new(
+        "ok",
+        "VibeGauge.Proxy",
+        typeof(ProxyHealth).Assembly.GetName().Version?.ToString() ?? "0.0.0",
         port,
-        upstream = Uri.TryCreate(route, UriKind.Absolute, out var uri) ? $"{uri.Scheme}://{uri.Host}:{uri.Port}" : route ?? "system",
-        upstream_error = routeError,
-        uptimeSeconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - startedAt).TotalSeconds),
-        requests = Interlocked.Read(ref requests),
-        parsed = Interlocked.Read(ref parsed),
-        errors = Interlocked.Read(ref errors)
-    };
+        Uri.TryCreate(route, UriKind.Absolute, out var uri) ? $"{uri.Scheme}://{uri.Host}:{uri.Port}" : route ?? "system",
+        routeError,
+        Math.Max(0, (long)(DateTimeOffset.UtcNow - startedAt).TotalSeconds),
+        Interlocked.Read(ref requests),
+        Interlocked.Read(ref parsed),
+        Interlocked.Read(ref errors));
 }

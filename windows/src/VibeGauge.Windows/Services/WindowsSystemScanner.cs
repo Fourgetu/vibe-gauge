@@ -14,6 +14,10 @@ public sealed partial class WindowsSystemScanner
     private readonly object sync = new();
     private DateTimeOffset npxMeasuredAt;
     private double npxCacheMb;
+    private DateTimeOffset pageFileMeasuredAt;
+    private double pageFileUsedGb;
+    private DateTimeOffset protectedTokensMeasuredAt;
+    private string[] cachedProtectedTokens = [];
     private ulong previousIdle;
     private ulong previousKernel;
     private ulong previousUser;
@@ -36,20 +40,25 @@ public sealed partial class WindowsSystemScanner
         ("context7", "Context7 检索服务")
     ];
 
-    public (SystemMetrics Metrics, ProcessReport Processes) Scan()
+    public (SystemMetrics Metrics, ProcessReport Processes) Scan() => ScanCore(forceProtectionRefresh: false);
+
+    private (SystemMetrics Metrics, ProcessReport Processes) ScanCore(bool forceProtectionRefresh)
     {
         lock (sync)
         {
             var processes = ReadProcesses();
             HashSet<int>? listeners = null, servicePids = null;
             string[] protectedTokens = [];
-            try
+            if (forceProtectionRefresh || HasOrphanMcpCandidate(processes))
             {
-                listeners = NativeMethods.ListeningProcessIds();
-                servicePids = ReadServiceProcessIds();
-                protectedTokens = ReadStartupTokens().Concat(ReadScheduledTaskTokens()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                try
+                {
+                    listeners = NativeMethods.ListeningProcessIds();
+                    servicePids = ReadServiceProcessIds();
+                    protectedTokens = ReadProtectedTokensCached(forceProtectionRefresh);
+                }
+                catch { listeners = null; servicePids = null; }
             }
-            catch { listeners = null; servicePids = null; }
             var report = BuildProcessReport(processes, listeners, servicePids, protectedTokens) with { LocalRuntimes = LocalRuntimeDiscovery.From(processes.Values) };
             // Reuse the already classified roots; do not retain every process command line.
             Volatile.Write(ref activityMetadata, (report.ProviderProcesses ?? []).Select(x => processes[x.ProcessId]).ToDictionary(x => x.ProcessId));
@@ -57,9 +66,27 @@ public sealed partial class WindowsSystemScanner
         }
     }
 
+    private static bool HasOrphanMcpCandidate(IReadOnlyDictionary<int, ProcessSnapshot> processes)
+    {
+        foreach (var process in processes.Values)
+            if (IsMcpRunner(process, out _) && !(process.ParentProcessId > 0 && processes.ContainsKey(process.ParentProcessId)))
+                return true;
+        return false;
+    }
+
+    private string[] ReadProtectedTokensCached(bool forceRefresh)
+    {
+        var now = DateTimeOffset.Now;
+        if (!forceRefresh && cachedProtectedTokens.Length > 0 && now - protectedTokensMeasuredAt < TimeSpan.FromMinutes(5))
+            return cachedProtectedTokens;
+        cachedProtectedTokens = ReadStartupTokens().Concat(ReadScheduledTaskTokens()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        protectedTokensMeasuredAt = now;
+        return cachedProtectedTokens;
+    }
+
     public CleanupResult Clean(IReadOnlyList<OrphanProcess> requested)
     {
-        var fresh = Scan();
+        var fresh = ScanCore(forceProtectionRefresh: true);
         var candidates = fresh.Processes.Orphans.ToDictionary(x => x.ProcessId);
         var killed = 0;
         var skipped = 0;
@@ -113,8 +140,11 @@ public sealed partial class WindowsSystemScanner
             drive.AvailableFreeSpace / gb, drive.TotalSize / gb, ReadNpxCacheMb());
     }
 
-    private static double ReadPageFileUsedGb()
+    private double ReadPageFileUsedGb()
     {
+        var now = DateTimeOffset.Now;
+        if (now - pageFileMeasuredAt < TimeSpan.FromSeconds(30)) return pageFileUsedGb;
+        pageFileMeasuredAt = now;
         try
         {
             using var searcher = new ManagementObjectSearcher("SELECT CurrentUsage FROM Win32_PageFileUsage");
@@ -124,9 +154,9 @@ public sealed partial class WindowsSystemScanner
             {
                 using (item) megabytes += Convert.ToDouble(item["CurrentUsage"] ?? 0);
             }
-            return megabytes / 1024d;
+            return pageFileUsedGb = megabytes / 1024d;
         }
-        catch { return 0; }
+        catch { return pageFileUsedGb = 0; }
     }
 
     private double ReadCpuPercent()

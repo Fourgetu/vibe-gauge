@@ -22,6 +22,8 @@ internal static class TopEdgeAutoHideChecks
                 Left = screen.WorkingArea.Left + 60, Top = screen.WorkingArea.Top + 100
             };
             using var edge = new TopEdgeAutoHide(window, pollPointer: false);
+            var collapsedEvents = new List<bool>();
+            edge.CollapsedChanged += collapsedEvents.Add;
             try
             {
                 window.Show();
@@ -45,6 +47,7 @@ internal static class TopEdgeAutoHideChecks
                 Assert.False(edge.IsCollapsed);
                 edge.UpdatePointer(away, now + 700);
                 Assert.True(edge.IsCollapsed);
+                Assert.Equal([true], collapsedEvents);
                 edge.AdvanceAnimation(TimeSpan.FromMilliseconds(16));
                 Assert.True(edge.IsAnimating);
                 Assert.InRange(expanded - window.Top, 0.1, window.Height * 0.03);

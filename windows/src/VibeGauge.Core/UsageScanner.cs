@@ -20,6 +20,17 @@ public sealed partial class UsageScanner
     private bool loaded;
     private bool cacheDirty;
     private readonly Dictionary<string, InteractionRecord[]> sourceRecords = new(StringComparer.Ordinal);
+    private UsageScanResult? cachedSummary;
+    private DateTime cachedSummaryDay;
+    private DateTimeOffset cachedSummaryAt;
+    private DateTimeOffset? cachedNextFutureTimestamp;
+    private bool cachedHasApiRecords;
+    private HashSet<string> cachedSummaryErrors = new(StringComparer.Ordinal);
+    private ClaudeDesktopUsageLocation? cachedDesktopLocation;
+    private string cachedPricesSignature = "";
+    private string cachedPlansSignature = "";
+    private int cachedDetectedDirsMask;
+    private InteractionRecord[] cachedApiRecords = [];
 
     public UsageScanner(AppPaths paths)
     {
@@ -73,11 +84,60 @@ public sealed partial class UsageScanner
                 }
             }
 
-            CompactHistory(DateTimeOffset.Now);
+            var now = DateTimeOffset.Now;
+            var compacted = CompactHistory(now);
             if (cacheDirty) cacheDirty = !SaveCache();
             LastDiagnostics = new(discovered.Count, filesRead, bytesRead);
-            return Summarize(errors);
+            var today = now.LocalDateTime.Date;
+            var pricesSig = FileSignature(paths.ResolveOwnDataFile("prices.json"));
+            var plansSig = FileSignature(paths.ResolveOwnDataFile("plans.json"));
+            var dirsMask = DetectedDirectoriesMask();
+            if (cachedSummary is not null && filesRead == 0 && !compacted && !cacheDirty &&
+                today == cachedSummaryDay && pricesSig == cachedPricesSignature && plansSig == cachedPlansSignature &&
+                dirsMask == cachedDetectedDirsMask && desktopLocation == cachedDesktopLocation &&
+                errors.Count == cachedSummaryErrors.Count && errors.SetEquals(cachedSummaryErrors) &&
+                (cachedNextFutureTimestamp is null || now < cachedNextFutureTimestamp.Value) &&
+                (!cachedHasApiRecords || now - cachedSummaryAt < TimeSpan.FromSeconds(60)))
+            {
+                return plansSig.Length > 0
+                    ? cachedSummary with { Plans = CodingPlan.LoadEstimates(paths, cachedApiRecords, now) }
+                    : cachedSummary;
+            }
+            var summary = Summarize(errors, now, out var nextFuture, out var apiRecords);
+            cachedSummary = summary;
+            cachedSummaryDay = today;
+            cachedSummaryAt = now;
+            cachedNextFutureTimestamp = nextFuture;
+            cachedHasApiRecords = apiRecords.Length > 0;
+            cachedApiRecords = plansSig.Length > 0 ? apiRecords : [];
+            cachedSummaryErrors = new HashSet<string>(errors, StringComparer.Ordinal);
+            cachedDesktopLocation = desktopLocation;
+            cachedPricesSignature = pricesSig;
+            cachedPlansSignature = plansSig;
+            cachedDetectedDirsMask = dirsMask;
+            return summary;
         }
+    }
+
+    private static string FileSignature(string path)
+    {
+        if (!File.Exists(path)) return "";
+        try { var info = new FileInfo(path); return $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}"; }
+        catch { return ""; }
+    }
+
+    private int DetectedDirectoriesMask()
+    {
+        var mask = 0;
+        if (Directory.Exists(paths.PiDesktopRoot)) mask |= 1 << 0;
+        if (Directory.Exists(paths.ZCodeRoot)) mask |= 1 << 1;
+        if (Directory.Exists(paths.WorkBuddyRoot)) mask |= 1 << 2;
+        if (Directory.Exists(paths.WorkBuddyAiRoot)) mask |= 1 << 3;
+        if (Directory.Exists(paths.DshRoot)) mask |= 1 << 4;
+        if (Directory.Exists(paths.DevinRoot)) mask |= 1 << 5;
+        if (Directory.Exists(paths.AntigravityConversations)) mask |= 1 << 6;
+        if (Directory.Exists(paths.GeminiRoot)) mask |= 1 << 7;
+        return mask;
     }
 
     private List<DiscoveredFile> DiscoverFiles()
@@ -367,9 +427,9 @@ public sealed partial class UsageScanner
             root.TryGetProperty("complete", out var complete) && complete.ValueKind is JsonValueKind.True or JsonValueKind.False ? complete.GetBoolean() : null, host));
     }
 
-    private UsageScanResult Summarize(IReadOnlyCollection<string> errors)
+    private UsageScanResult Summarize(IReadOnlyCollection<string> errors, DateTimeOffset now, out DateTimeOffset? nextFutureTimestamp, out InteractionRecord[] currentApiRecords)
     {
-        var start = new DateTimeOffset(DateTime.Today);
+        var start = new DateTimeOffset(now.LocalDateTime.Date);
         var claudeFiles = CachedFiles("Claude");
         var claude = SourceRecords("Claude", () => MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)));
         var desktop = DesktopRecords(claude);
@@ -391,9 +451,8 @@ public sealed partial class UsageScanner
         var devinFiles = CachedFiles(DevinUsage.SourceName);
         var devin = SourceRecords(DevinUsage.SourceName, () => MostRecentPerId(devinFiles.SelectMany(x => x.Value.Records.Values)));
         var apiFiles = CachedFiles("API");
-        var api = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
-
-        var now = DateTimeOffset.Now;
+        var rawApi = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
+        nextFutureTimestamp = NextFutureTimestamp(now, desktop, claude, codex, pi, zcode, buddy, dsh, devin, ag, rawApi);
         var todayDesktop = desktop.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var desktopSource = SourceSummary(ClaudeDesktop.Name, todayDesktop, desktopLocation.Detected, desktopLocation.Note);
         if (todayDesktop.Length > 0) desktopSource = desktopSource with { Note = "来自桌面真实用量账本；仅覆盖已记录活动" };
@@ -436,7 +495,8 @@ public sealed partial class UsageScanner
             cliRecords.OrderByDescending(x => x.Timestamp).Take(3).Select(x => QualifyRecentId(x, codexFiles)).ToArray(),
             error, BuildProjects(todayClaude.Concat(todayCodex)));
 
-        api = api.Where(x => x.Timestamp <= now).ToArray();
+        var api = rawApi.Where(x => x.Timestamp <= now).ToArray();
+        currentApiRecords = api;
         var todayApi = api.Where(x => x.Timestamp >= start).ToArray();
         var prices = PriceTable.Load(paths);
         var ranges = new[]
@@ -502,6 +562,16 @@ public sealed partial class UsageScanner
         return new(cli, apiSummary, statistics.WithHistory(cache.ColdStatistics) with { Prices = prices },
             WithColdTotal(piTotal), WithColdTotal(zcodeTotal), WithColdTotal(buddyTotal), WithColdTotal(dshTotal), CodingPlan.LoadEstimates(paths, api, now), WithColdTotal(codexTotal),
             SourceSummary(ClaudeDesktop.Name, desktop.Where(x => x.Timestamp <= now).ToArray(), desktopLocation.Detected, desktopLocation.Note), desktop, WithColdTotal(devinTotal), WithColdTotal(agTotal), ag);
+    }
+
+    private static DateTimeOffset? NextFutureTimestamp(DateTimeOffset now, params InteractionRecord[][] sources)
+    {
+        DateTimeOffset? next = null;
+        foreach (var source in sources)
+            foreach (var item in source)
+                if (item.Timestamp > now && (next is null || item.Timestamp < next.Value))
+                    next = item.Timestamp;
+        return next;
     }
 
     private InteractionRecord[] SourceRecords(string source, Func<IEnumerable<InteractionRecord>> build)

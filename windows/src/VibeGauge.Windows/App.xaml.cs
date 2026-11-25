@@ -1,7 +1,9 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.IO;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -13,9 +15,21 @@ namespace VibeGauge.Windows;
 
 public partial class App : System.Windows.Application
 {
+    [ModuleInitializer]
+    internal static void InitializeRenderMode()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("VIBEGAUGE_RENDER_MODE"), "hardware", StringComparison.OrdinalIgnoreCase))
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+    }
+
     private readonly bool startRuntime;
     public App() : this(startRuntime: true) { }
-    public App(bool startRuntime) { this.startRuntime = startRuntime; UiLocalization.Initialize(); }
+    public App(bool startRuntime)
+    {
+        InitializeRenderMode();
+        this.startRuntime = startRuntime;
+        UiLocalization.Initialize();
+    }
     private TrayIconManager? tray;
     private Mutex? singleInstance;
     private ProxyManager? proxy;
@@ -99,6 +113,7 @@ public partial class App : System.Windows.Application
             if (e.Args.Contains("--capture-hourly", StringComparer.OrdinalIgnoreCase)) window.StatisticsView.SetHourly(true);
         }
         if (!e.Args.Contains("--startup", StringComparer.OrdinalIgnoreCase)) tray.ShowWindow();
+        else window.ScheduleHiddenReclaim();
         if (captureUi && e.Args.Contains("--capture-compact", StringComparer.OrdinalIgnoreCase))
         {
             window.Width = 420; window.Height = 560;

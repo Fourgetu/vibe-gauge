@@ -57,7 +57,7 @@ public sealed class ProxyHost : IAsyncDisposable
         app.MapGet("/_vibegauge/health", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            return Results.Json(health.Snapshot());
+            return Results.Json(health.Snapshot(), ProxyJsonContext.Default.ProxyHealthSnapshot);
         });
         app.MapPost("/_vibegauge/shutdown", async context =>
         {
@@ -72,7 +72,8 @@ public sealed class ProxyHost : IAsyncDisposable
                 return;
             }
             context.Response.StatusCode = StatusCodes.Status202Accepted;
-            await context.Response.WriteAsJsonAsync(new { status = "stopping" });
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new ProxyStatusResponse("stopping"), ProxyJsonContext.Default.ProxyStatusResponse));
             _ = Task.Run(async () =>
             {
                 await Task.Delay(50);
@@ -259,7 +260,7 @@ public sealed class ProxyHost : IAsyncDisposable
         if (context.Response.HasStarted) return;
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = SecretRedactor.Redact(message) }));
+        await context.Response.WriteAsync(JsonSerializer.Serialize(new ProxyErrorResponse(SecretRedactor.Redact(message)), ProxyJsonContext.Default.ProxyErrorResponse));
     }
 
     public async ValueTask DisposeAsync()

@@ -13,6 +13,7 @@ public partial class MainWindow : Window
 {
     private readonly DashboardViewModel viewModel;
     private bool allowClose;
+    private volatile bool isHidden;
     private bool moving;
     private bool pinned;
     private string themeMode;
@@ -23,6 +24,10 @@ public partial class MainWindow : Window
     private readonly TopEdgeAutoHide edgeHide;
     private readonly System.Windows.Threading.DispatcherTimer transparencySaveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly System.Windows.Threading.DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromMilliseconds(2000) };
+    private readonly System.Windows.Threading.DispatcherTimer hideReclaimTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly System.Windows.Threading.DispatcherTimer startupCompactTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    private DateTimeOffset lastHiddenReclaimAt;
+    private readonly bool autoHideEnabled;
     private (bool Light, int Value)? pendingTransparency;
     private bool syncingAppearance = true;
     private VibeGauge.Core.DashboardSnapshot? latestSnapshot;
@@ -34,6 +39,7 @@ public partial class MainWindow : Window
 
     public MainWindow(DashboardViewModel viewModel, bool autoHide = true)
     {
+        autoHideEnabled = autoHide;
         themeSettings = new ThemeSettings(viewModel.Paths.LocalDataRoot);
         themeMode = themeSettings.ThemeMode;
         backdropMode = themeSettings.BackdropMode;
@@ -44,6 +50,21 @@ public partial class MainWindow : Window
         InitializeComponent();
         transparencySaveTimer.Tick += (_, _) => SaveTransparency();
         toastTimer.Tick += (_, _) => HideToast();
+        hideReclaimTimer.Tick += (_, _) =>
+        {
+            hideReclaimTimer.Stop();
+            if (isHidden && !allowClose)
+            {
+                lastHiddenReclaimAt = DateTimeOffset.Now;
+                MemoryReclaimer.ReclaimHiddenMemory(() => isHidden && !allowClose);
+            }
+        };
+        startupCompactTimer.Tick += (_, _) =>
+        {
+            startupCompactTimer.Stop();
+            if (!allowClose) MemoryReclaimer.CompactManagedHeapAsync();
+        };
+        if (autoHide) startupCompactTimer.Start();
         SystemEvents.UserPreferenceChanged += OnSystemPreferenceChanged;
         UpdateTheme();
         DataContext = this.viewModel = viewModel;
@@ -56,10 +77,14 @@ public partial class MainWindow : Window
         SizeChanged += (_, _) => HeaderMemory.Visibility = ActualWidth >= 520 && viewModel.IsOverview ? Visibility.Visible : Visibility.Collapsed;
         PlansView.ProviderSelected += name => viewModel.OpenProviderDetail(name);
         edgeHide = new TopEdgeAutoHide(this, autoHide);
+        edgeHide.CollapsedChanged += _ => UpdateEffectiveVisibility();
         viewModel.SnapshotChanged += (_, snapshot) =>
         {
             latestSnapshot = snapshot;
             UpdateSelectedPanel();
+            if (isHidden && autoHideEnabled && !allowClose && !hideReclaimTimer.IsEnabled &&
+                DateTimeOffset.Now - lastHiddenReclaimAt >= TimeSpan.FromSeconds(45))
+                hideReclaimTimer.Start();
         };
         viewModel.LightweightChanged += (_, adapters) =>
         {
@@ -83,7 +108,8 @@ public partial class MainWindow : Window
                 if (e.PropertyName != nameof(viewModel.SelectedTokenUnit)) AnimateViewTransition(ContentHost);
             }
         };
-        IsVisibleChanged += (_, _) => { viewModel.SetWindowVisible(IsVisible); if (IsVisible) UpdateSelectedPanel(); };
+        IsVisibleChanged += (_, _) => UpdateEffectiveVisibility();
+        isHidden = !IsEffectivelyVisible;
         if (autoHide) Deactivated += (_, _) =>
         {
             if (!pinned && !moving && !edgeHide.IsDocked && !IsMouseOver) Hide();
@@ -147,11 +173,30 @@ public partial class MainWindow : Window
         ToastBanner.BeginAnimation(OpacityProperty, fade);
     }
 
+    private bool IsEffectivelyVisible => IsVisible && !edgeHide.IsCollapsed;
+
+    private void UpdateEffectiveVisibility()
+    {
+        var visible = IsEffectivelyVisible;
+        isHidden = !visible;
+        viewModel.SetWindowVisible(visible);
+        if (visible)
+        {
+            hideReclaimTimer.Stop();
+            UpdateSelectedPanel();
+        }
+        else if (autoHideEnabled && !allowClose)
+        {
+            hideReclaimTimer.Stop();
+            hideReclaimTimer.Start();
+        }
+    }
+
     private void UpdateSelectedPanel()
     {
-        // Collection and tray monitoring continue while hidden; rebuild the
-        // selected detail view from the latest snapshot when the window reopens.
-        if (!IsVisible) return;
+        // Collection and tray monitoring continue while hidden or collapsed at the top edge;
+        // rebuild the selected detail view from the latest snapshot when the window expands.
+        if (!IsEffectivelyVisible) return;
         if ((viewModel.CurrentSnapshot ?? latestSnapshot) is not { } snapshot) return;
         if (viewModel.SelectedProviderName is { } selected)
         {
@@ -282,6 +327,8 @@ public partial class MainWindow : Window
         }
         SystemEvents.UserPreferenceChanged -= OnSystemPreferenceChanged;
         toastTimer.Stop();
+        hideReclaimTimer.Stop();
+        startupCompactTimer.Stop();
         viewModel.Dispose();
         base.OnClosing(e);
     }
@@ -305,6 +352,14 @@ public partial class MainWindow : Window
 
     internal void PrepareForTrayShow() => edgeHide.Reveal();
     internal void OnTrayShown() { if (HasUserPosition) edgeHide.CompleteMove(); }
+    internal void ScheduleHiddenReclaim()
+    {
+        isHidden = !IsVisible;
+        if (!isHidden || allowClose) return;
+        viewModel.SetWindowVisible(false);
+        hideReclaimTimer.Stop();
+        hideReclaimTimer.Start();
+    }
 
     private void Hide_Click(object sender, RoutedEventArgs e) => Hide();
 

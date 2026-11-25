@@ -17,10 +17,13 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     private readonly ClientVisibilitySettings clientVisibilitySettings;
     private readonly HashSet<string> hiddenClients;
     private bool internationalTokens;
+    private static readonly TimeSpan ActiveScanInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan HiddenScanInterval = TimeSpan.FromSeconds(30);
     private readonly DispatcherTimer timer;
     private readonly DispatcherTimer fastTimer;
     private readonly VisibleRefreshLoop<LightweightSnapshot> fastRefresh;
     private bool windowVisible, disposed;
+    private DateTimeOffset lastScanAt;
     private bool refreshing;
     private string statusText = "正在读取本地数据...";
     private string headerMemoryText = "内存 --";
@@ -116,7 +119,15 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
     public event EventHandler<DashboardSnapshot>? SnapshotChanged;
     public event EventHandler<IReadOnlyList<NetworkAdapterInfo>>? LightweightChanged;
 
-    internal void SetWindowVisible(bool value) { windowVisible = value; UpdateFastScope(); }
+    internal void SetWindowVisible(bool value)
+    {
+        var wasVisible = windowVisible;
+        windowVisible = value;
+        timer.Interval = value ? ActiveScanInterval : HiddenScanInterval;
+        UpdateFastScope();
+        if (value && !wasVisible && !disposed && lastSnapshot is not null && DateTimeOffset.Now - lastScanAt >= ActiveScanInterval)
+            _ = RefreshAsync();
+    }
     private void UpdateFastScope()
     {
         fastRefresh.Invalidate();
@@ -305,6 +316,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
             var snapshot = await coordinator.ScanAsync();
             if (disposed) return;
             fastRefresh.Invalidate();
+            lastScanAt = DateTimeOffset.Now;
             Apply(snapshot);
             StatusText = $"更新于 {snapshot.CapturedAt:HH:mm:ss}";
             SnapshotChanged?.Invoke(this, snapshot);
