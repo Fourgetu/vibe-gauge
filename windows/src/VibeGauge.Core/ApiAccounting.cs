@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace VibeGauge.Core;
 
@@ -12,7 +13,7 @@ public sealed record CostEstimate(decimal Amount, string Currency, string AsOf, 
         (Source == "OpenRouter" ? $" · OpenRouter 基础 Token 单价 · {AsOf}" : "");
 }
 
-public sealed class PriceTable
+public sealed partial class PriceTable
 {
     public sealed record Rate(decimal Input, decimal Output, decimal CacheRead, decimal CacheWrite);
     public Dictionary<string, Rate> Rates { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -22,6 +23,8 @@ public sealed class PriceTable
     public string Source { get; private set; } = "";
     public bool ExactMatch { get; private set; }
     private string[] stripSuffixes = [];
+    // Names present under providers but intentionally not exported as unique short aliases.
+    private readonly HashSet<string> withheld = new(StringComparer.OrdinalIgnoreCase);
     // Exact Devin picker IDs only: Fast, sidekick, Pro and other routes must not inherit these prices.
     private static readonly Dictionary<string, string> DevinBaseModels = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -61,6 +64,12 @@ public sealed class PriceTable
             var rate = new Rate(input, Read("out"), Read("cache_read", input), Read("cache_write", input));
             if (rate.Input + rate.Output + rate.CacheRead + rate.CacheWrite > 0 || table.Source == "OpenRouter") table.Rates[item.Name] = rate;
         }
+        foreach (var id in table.Rates.Keys)
+        {
+            var slash = id.IndexOf('/');
+            if (slash >= 0 && !table.Rates.ContainsKey(id[(slash + 1)..]))
+                table.withheld.Add(id[(slash + 1)..]);
+        }
         return table;
     }
     public decimal? Cost(string model, long context, long output, long read, long write)
@@ -70,23 +79,69 @@ public sealed class PriceTable
     {
         baseModel = false;
         var rate = Rates.GetValueOrDefault(model);
-        if (rate is null && source == DevinUsage.SourceName && DevinBaseModels.TryGetValue(model, out var canonical))
+        if (rate is null && Source == "OpenRouter" && model.Equals("cn:deepseek-v4.1-flash", StringComparison.OrdinalIgnoreCase))
         {
-            rate = Rates.GetValueOrDefault(canonical);
-            if (rate is null && Source != "OpenRouter") rate = Rates.GetValueOrDefault(canonical[(canonical.IndexOf('/') + 1)..]);
+            rate = Rates.GetValueOrDefault("deepseek/deepseek-v4.1-flash");
             baseModel = rate is not null;
         }
         if (rate is null)
         {
             foreach (var suffix in stripSuffixes)
                 if (model.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) { model = model[..^suffix.Length]; break; }
-            rate = ExactMatch ? Rates.GetValueOrDefault(model) : Rates.Where(x => model.StartsWith(x.Key, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(x => x.Key.Length).Select(x => x.Value).FirstOrDefault();
+            rate = Rates.GetValueOrDefault(model);
         }
+        if (rate is null && Source == "OpenRouter" && source.Length > 0 && !source.StartsWith("API · ", StringComparison.Ordinal))
+        {
+            rate = AgentRate(model, out var blocked);
+            baseModel = rate is not null;
+            if (blocked) return null;
+        }
+        if (rate is null && source == DevinUsage.SourceName && DevinBaseModels.TryGetValue(model, out var canonical))
+        {
+            rate = Rates.GetValueOrDefault(canonical);
+            if (rate is null && Source != "OpenRouter") rate = Rates.GetValueOrDefault(canonical[(canonical.IndexOf('/') + 1)..]);
+            baseModel = rate is not null;
+        }
+        if (rate is null && !ExactMatch) rate = Rates.Where(x => model.StartsWith(x.Key, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Key.Length).Select(x => x.Value).FirstOrDefault();
         try { return rate is null ? null : (Math.Max(0m, (decimal)context - read - write) * rate.Input + (decimal)read * rate.CacheRead +
             (decimal)write * rate.CacheWrite + (decimal)output * rate.Output) / 1_000_000m; }
         catch (OverflowException) { return null; }
     }
+
+    // Match catalogue spellings *with* effort first. A priced o3-mini-high, for
+    // example, is a model in its own right. Never remove a namespace or routing tag.
+    private Rate? AgentRate(string raw, out bool blocked)
+    {
+        blocked = false;
+        if (raw.Length is 0 or > 200 || raw.Contains(':')) return null;
+        var id = DisplaySeparator().Replace(raw.Trim(), "-").ToLowerInvariant();
+        var slash = id.LastIndexOf('/') + 1;
+        var prefix = id[..slash];
+        var name = id[slash..];
+        var effort = EffortSuffix().Match(name);
+        foreach (var stem in effort.Success ? new[] { name, name[..effort.Index] } : new[] { name })
+        {
+            var plain = prefix + stem;
+            var dotted = prefix + MinorSeparator().Replace(stem, ".");
+            if (withheld.Contains(plain) || withheld.Contains(dotted)) { blocked = true; return null; }
+            var a = Rates.GetValueOrDefault(plain);
+            var b = plain == dotted ? null : Rates.GetValueOrDefault(dotted);
+            if (a is not null && b is not null) { blocked = true; return null; }
+            if ((a ?? b) is { } match) return match;
+            // These are product names, even when a catalogue omits their exact SKU.
+            if (stem == name && (name.StartsWith("qwen", StringComparison.Ordinal) && name.EndsWith("-max", StringComparison.Ordinal) ||
+                name.EndsWith("-codex-max", StringComparison.Ordinal) || name is "o3-mini-high" or "o4-mini-high")) break;
+        }
+        return null;
+    }
+
+    [GeneratedRegex(@" +", RegexOptions.CultureInvariant)]
+    private static partial Regex DisplaySeparator();
+    [GeneratedRegex(@"-(?:minimal|low|medium|high|xhigh|max|ultra)$", RegexOptions.CultureInvariant)]
+    private static partial Regex EffortSuffix();
+    [GeneratedRegex(@"(?<=\d)-(?=\d{1,2}(?:-|$))", RegexOptions.CultureInvariant)]
+    private static partial Regex MinorSeparator();
     public CostEstimate Estimate(IEnumerable<ModelMix> models, int unknownCalls = 0)
     {
         decimal sum = 0;

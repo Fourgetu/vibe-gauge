@@ -5,6 +5,9 @@ public static class SelfTest
     public static void Run()
     {
         Check(Formatting.ModelDisplayName("claude-fable-5-1") == "Fable 5.1", "model fable");
+        Check(Formatting.ModelDisplayName("claude-opus-5-5-medium") == "Claude Opus 5.5 Medium", "model opus medium");
+        Check(Formatting.ModelDisplayName("claude-opus-5-5-high") == "Claude Opus 5.5 High", "model opus high");
+        Check(Formatting.ModelDisplayName("claude-opus-5-5") == "Claude Opus 5.5", "no inferred effort");
         Check(Formatting.ModelDisplayName("claude-sonnet-4-5-20250929") == "Sonnet 4.5", "model sonnet");
         Check(Formatting.CodexPlanLabel("prolite") == "Pro Lite", "codex plan");
         var now = DateTimeOffset.Parse("2026-09-22T10:00:00Z");

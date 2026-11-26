@@ -21,12 +21,12 @@
 
 ## 下载与安装
 
-当前正式版：**v1.6.17**。
+当前正式版：**v1.6.18**。
 
 | 下载方式 | 文件与用途 |
 | --- | --- |
-| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.17/VibeGauge-Setup-v1.6.17.exe) | 当前用户安装包，适合日常使用 |
-| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.17/VibeGauge-Windows-x64-v1.6.17.zip) | 解压后运行，适合便携使用 |
+| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.18/VibeGauge-Setup-v1.6.18.exe) | 当前用户安装包，适合日常使用 |
+| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.18/VibeGauge-Windows-x64-v1.6.18.zip) | 解压后运行，适合便携使用 |
 | [正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/latest) | 更新说明、全部附件及 SHA-256 校验文件 |
 
 安装版和免安装版均自带运行时，**使用时无需另装 .NET 或 Python**。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
@@ -279,7 +279,7 @@ Windows 主程序、核心解析和代理代码位于 `windows/src`，自动化�
 
 | 主题 | 文档 |
 | --- | --- |
-| 当前正式版 | [v1.6.17 更新说明](docs/releases/v1.6.17.md) |
+| 当前正式版 | [v1.6.18 更新说明](docs/releases/v1.6.18.md) |
 | Codex Proxy RS | [配置、统计范围与排查](docs/windows-codex-proxy-rs.md) |
 | 软路由与控制器密钥 | [控制器接入说明](docs/windows-router-controller-2026-09-30.md) |
 | 统计与独立智能体用量 | [统计页说明](docs/windows-statistics-agents-2026-09-30.md) |

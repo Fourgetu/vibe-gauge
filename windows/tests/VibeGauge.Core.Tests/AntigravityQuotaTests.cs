@@ -44,6 +44,22 @@ public sealed class AntigravityQuotaTests
     }
 
     [Fact]
+    public void FullEpochWindowsSurviveBothOfficialReportsWithoutInventingAReset()
+    {
+        var buckets = new[] { "3p-5h", "3p-weekly" }.Select(id => new { id, remaining_fraction = 1, reset_time = "1970-01-01T00:00:00Z" }).ToArray();
+        var cli = AntigravityQuota.Parse(Report(string.Join(",", buckets.Select(b => System.Text.Json.JsonSerializer.Serialize(b)))), Now);
+        var status = AntigravityQuota.FromStatusLine(System.Text.Json.JsonSerializer.SerializeToElement(new {
+            plan_tier = "Pro", quota = buckets.ToDictionary(b => b.id) }), Now);
+        foreach (var window in new[] { cli.OtherFive, cli.OtherWeek, status?.OtherFive, status?.OtherWeek })
+        {
+            Assert.NotNull(window);
+            Assert.Equal(0, window.UsedPercent);
+            Assert.Null(window.ResetsAt);
+        }
+        Assert.Null(AntigravityQuota.Parse(Report("""{"id":"3p-5h","remaining_fraction":0.9999,"reset_time":"1970-01-01T00:00:00Z"}"""), Now).OtherFive);
+    }
+
+    [Fact]
     public void InvalidAndMissingWindowsAreNotShownAsFull()
     {
         var q = AntigravityQuota.Parse(Report("""

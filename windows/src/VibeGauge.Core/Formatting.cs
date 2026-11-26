@@ -33,7 +33,16 @@ public static partial class Formatting
     public static string ModelDisplayName(string raw)
     {
         var value = raw.ToLowerInvariant();
-        if (value.Contains("opus-5")) return "Opus 5";
+        var opus = OpusFiveRegex().Match(value);
+        if (opus.Success)
+        {
+            var minor = opus.Groups["minor"].Value;
+            var effort = opus.Groups["effort"].Value;
+            return "Claude Opus 5" + (minor.Length == 0 ? "" : "." + minor) +
+                (effort.Length == 0 ? "" : " " + CultureInfo.InvariantCulture.TextInfo.ToTitleCase(effort));
+        }
+        // Keep unfamiliar Opus 5 variants intact instead of dropping version or effort.
+        if (value.Contains("opus-5")) return raw;
         if (value.Contains("fable-5-1")) return "Fable 5.1";
         var match = ClaudeModelRegex().Match(value);
         if (match.Success)
@@ -65,4 +74,7 @@ public static partial class Formatting
 
     [GeneratedRegex(@"claude-(opus|sonnet|haiku)-(\d+)-(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex ClaudeModelRegex();
+
+    [GeneratedRegex(@"^(?:[^/]+/)?(?:claude-)?opus-5(?:[-.](?<minor>\d{1,2}))?(?:-(?<effort>low|medium|high|xhigh|max))?(?:-\d{8})?$", RegexOptions.CultureInvariant)]
+    private static partial Regex OpusFiveRegex();
 }

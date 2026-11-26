@@ -79,6 +79,56 @@ public sealed class OpenRouterPricesTests : IDisposable
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
 
+    [Fact]
+    public void AgentEffortIsPricedFromCurrentCatalogueAcrossClientsWithoutChangingTheModel()
+    {
+        static string Data(decimal input) => JsonSerializer.Serialize(new { data = new[] {
+            new { id = "anthropic/claude-opus-5.5", pricing = new { prompt = input, completion = .000020m,
+                input_cache_read = .0000002m, input_cache_write = .000005m } } } });
+        var row = new ModelMix("Antigravity","claude-opus-5-5-medium",1,10_000,100,4_000);
+        var table = PriceTable.Parse(OpenRouterPrices.Parse(Data(.000004m), At).Json);
+        foreach (var (source,id) in new[]{("Antigravity",row.Model),("Devin","claude-opus-5-5-high"),
+            ("PI-Desktop","Claude Opus 5.5 Medium"),("ZCode","anthropic/claude-opus-5-5-xhigh")})
+        {
+            var result = table.Estimate([row with { Source=source,Model=id }]);
+            Assert.True(result.UsesBaseModelRate);
+            Assert.Equal(0,result.UnpricedModels);
+            Assert.Equal(.0268m,result.Amount);
+        }
+        var refreshed = PriceTable.Parse(OpenRouterPrices.Parse(Data(.000008m), At.AddDays(1)).Json);
+        Assert.Equal(.0508m,refreshed.Estimate([row]).Amount);
+        Assert.Equal(1,table.Estimate([row with { Source="API · example" }]).UnpricedModels);
+    }
+
+    [Fact]
+    public void DeepSeekRegionalAliasUsesCurrentBaseRateWithoutStrippingOtherRoutePrefixes()
+    {
+        var table = PriceTable.Parse("""{"_source":"OpenRouter","_match":"exact","deepseek/deepseek-v4.1-flash":{"in":2,"out":3},"other":{"in":1}}""");
+        var row = new ModelMix("PI-Desktop", "cn:deepseek-v4.1-flash", 1, 1_000_000, 0);
+        Assert.Equal(2m, table.Estimate([row]).Amount);
+        Assert.True(table.Estimate([row]).UsesBaseModelRate);
+        Assert.Equal(1, table.Estimate([row with { Model = "cn:other" }]).UnpricedModels);
+        table.Rates[row.Model] = new(3, 4, 1, 2);
+        Assert.Equal(3m, table.Estimate([row]).Amount);
+        Assert.False(table.Estimate([row]).UsesBaseModelRate);
+    }
+
+    [Fact]
+    public void FullSkusWinAndAmbiguousVersionsOrRoutesAreNotPriced()
+    {
+        var items = new[]{("v/model-5.5",1),("v/model-5.5-high",2),("a/shared",1),("b/shared",2),
+            ("a/choice-5-5",4),("a/choice-5.5",3),("v/gpt-5.1-codex",4),("a/model-high",1),("b/model-high",2),("a/model",3)};
+        var json = JsonSerializer.Serialize(new {data=items.Select(x=>new{id=x.Item1,pricing=new{prompt=x.Item2*.000001m,completion=0}})});
+        var table=PriceTable.Parse(OpenRouterPrices.Parse(json,At).Json);
+        CostEstimate E(string id) => table.Estimate([new("WorkBuddy",id,1,1_000_000,0)]);
+        Assert.False(E("model-5.5-high").UsesBaseModelRate);
+        Assert.Equal(2m,E("model-5-5-high").Amount);
+        Assert.Equal(1m,E("a/shared-medium").Amount);
+        foreach(var id in new[]{"shared-medium","choice-5-5-medium","model-high","gpt-5.1-codex-max",
+            "model-5.5-fast-high","other/model-5.5-high","model-5.5:batch-high","model-5.5-free-high"})
+            Assert.Equal(1,E(id).UnpricedModels);
+    }
+
     [Theory]
     [InlineData("gpt-6-astra-medium", "openai/gpt-6-astra")]
     [InlineData("gpt-6-sol-medium", "openai/gpt-6-sol")]

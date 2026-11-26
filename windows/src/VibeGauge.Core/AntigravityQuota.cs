@@ -26,7 +26,10 @@ public sealed record AntigravityQuota(QuotaWindow? GeminiFive = null, QuotaWindo
             !fraction.TryGetDouble(out var remaining) || !double.IsFinite(remaining) || remaining is < 0 or > 1) return null;
         var rawReset = bucket.StringOrEmpty("reset_time");
         var reset = Formatting.ParseDate(rawReset);
-        if (rawReset.Length > 0 && reset is null || reset <= observed) return null;
+        if (rawReset.Length > 0 && reset is null) return null;
+        // agy reports an unused full bucket with the Unix epoch as its reset sentinel.
+        if (remaining == 1 && reset == DateTimeOffset.UnixEpoch) reset = null;
+        else if (reset <= observed) return null;
         return new(100 - (int)Math.Round(remaining * 100, MidpointRounding.AwayFromZero), reset, observed,
             id.EndsWith("weekly", StringComparison.Ordinal) ? TimeSpan.FromDays(7) : TimeSpan.FromHours(5));
     }
