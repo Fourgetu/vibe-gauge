@@ -91,7 +91,7 @@ public sealed class DashboardViewModel : INotifyPropertyChanged, IDisposable
         internationalTokens = tokenUnitSettings.Load() == TokenUnit.International;
         clientVisibilitySettings = new(coordinator.Paths.LocalDataRoot);
         hiddenClients = clientVisibilitySettings.Load();
-        EnsureClientOptions(["Claude", ClaudeDesktop.Name, "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop", DevinUsage.SourceName, AntigravityUsage.SourceName]);
+        EnsureClientOptions(["Claude", "Codex", "Gemini", "ZCode", "PI-Desktop", "Ollama", "WorkBuddy", "DSH Desktop", DevinUsage.SourceName, AntigravityUsage.SourceName]);
         startupEnabled = startup.IsEnabled;
         autoStartProxy = proxySettings.AutoStart;
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -554,7 +554,8 @@ public sealed record PlatformRow(
         var session = value.AlwaysShowDetail ? (value.DataState == ProviderDataState.Available ? "已同步" : "查询失败") : desktop ? runtime : value.Name == "Ollama"
             ? value.ModelCount is { } count ? $"{count} 个模型" : "模型数未知"
             : $"{value.Sessions} 个会话";
-        var detail = value.AlwaysShowDetail || desktop || value.DesktopTokens is not null ? value.Detail : value.DataState switch
+        var detail = value.AlwaysShowDetail || desktop || value.DesktopTokens is not null ||
+            (value.Name == "Claude" && !string.IsNullOrWhiteSpace(value.CompactDetail)) ? value.Detail : value.DataState switch
         {
             ProviderDataState.NotSignedIn => "未登录",
             ProviderDataState.NoQuota => "未检测到额度",

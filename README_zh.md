@@ -21,12 +21,12 @@
 
 ## 下载与安装
 
-当前正式版：**v1.6.19**。
+当前正式版：**v1.6.20**。
 
 | 下载方式 | 文件与用途 |
 | --- | --- |
-| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.19/VibeGauge-Setup-v1.6.19.exe) | 当前用户安装包，适合日常使用 |
-| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.19/VibeGauge-Windows-x64-v1.6.19.zip) | 解压后运行，适合便携使用 |
+| [Windows 安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.20/VibeGauge-Setup-v1.6.20.exe) | 当前用户安装包，适合日常使用 |
+| [Windows 免安装版](https://github.com/Fourgetu/vibe-gauge/releases/download/v1.6.20/VibeGauge-Windows-x64-v1.6.20.zip) | 解压后运行，适合便携使用 |
 | [正式版发布页](https://github.com/Fourgetu/vibe-gauge/releases/latest) | 更新说明、全部附件及 SHA-256 校验文件 |
 
 安装版和免安装版均自带运行时，**使用时无需另装 .NET 或 Python**。安装包尚未代码签名，Windows 可能显示 SmartScreen 或未知发布者提示。
@@ -55,8 +55,7 @@
 
 | 对象 | Windows 版提供的能力 |
 | --- | --- |
-| Claude Desktop | 独立识别桌面登录和运行状态，接入本地真实用量账本（无账本的云端聊天不可统计）；不再解密桌面端 `Local State` 凭据，默认仅统计本地用量，可在「系统 → 详细设置 → Claude 额度来源」按需开启手动 `Web sessionKey` 或 `Claude Code OAuth` 每 3 分钟查询（遇 429 自动退避） |
-| Claude Code | 订阅档位、状态栏桥接回报的 5 小时与周额度、重置时间、额度新鲜度与预测 |
+| Claude | 统一 `Claude` 卡片展示订阅档位、5 小时与周额度、重置时间、新鲜度与预测；支持状态栏桥接回报（`Claude Code 额度连接`），并可在「系统 → 详细设置 → Claude 额度来源」按需开启 `Claude Code OAuth` 或手动 `Web sessionKey` 每 3 分钟查询（遇 429 自动退避） |
 | Codex | 当前登录模式与套餐识别；账号模式下的官方额度查询和本地额度回报；按实际窗口显示圆环与重置时间 |
 | Gemini / Antigravity | 通过状态栏桥接和本地额度缓存读取官方池、第三方池及重置信息 |
 | Kimi Code | 本机 `kimi web` 服务可用时读取官方额度 |
@@ -279,7 +278,7 @@ Windows 主程序、核心解析和代理代码位于 `windows/src`，自动化�
 
 | 主题 | 文档 |
 | --- | --- |
-| 当前正式版 | [v1.6.19 更新说明](docs/releases/v1.6.19.md) |
+| 当前正式版 | [v1.6.20 更新说明](docs/releases/v1.6.20.md) |
 | Codex Proxy RS | [配置、统计范围与排查](docs/windows-codex-proxy-rs.md) |
 | 软路由与控制器密钥 | [控制器接入说明](docs/windows-router-controller-2026-09-30.md) |
 | 统计与独立智能体用量 | [统计页说明](docs/windows-statistics-agents-2026-09-30.md) |

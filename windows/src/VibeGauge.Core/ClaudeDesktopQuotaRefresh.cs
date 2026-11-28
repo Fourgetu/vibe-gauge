@@ -28,29 +28,38 @@ public sealed class ClaudeDesktopQuotaRefresh(IClaudeDesktopQuotaClient client, 
     private string error = "";
     private bool force, disposed;
 
-    public PlatformStatus? Apply(PlatformStatus? local)
+    public PlatformStatus? Apply(PlatformStatus? local, string profile = "")
     {
         lock (sync)
         {
             if (disposed) return local;
-            if (local is null || local.Tier != "已登录" || local.Metadata?.Sources.Count != 1)
-            { Reset(); return local; }
+            if (local is null)
+            { Reset(); return null; }
+            var resolvedProfile = !string.IsNullOrWhiteSpace(profile)
+                ? profile
+                : local.Metadata?.Sources.FirstOrDefault() is { Length: > 0 } src
+                    ? Path.GetDirectoryName(src) ?? ""
+                    : "";
+            var hasLocalQuota = local.FiveHour is not null || local.Weekly is not null ||
+                local.SecondaryFiveHour is not null || local.SecondaryWeekly is not null;
+
             ClaudeDesktopQuotaAccess access;
-            try { access = client.ReadAccount(Path.GetDirectoryName(local.Metadata.Sources[0])!); }
+            try { access = client.ReadAccount(resolvedProfile); }
             catch { access = new(Error: "无法读取 Claude 额度来源配置，请稍后刷新"); }
             if (access.Disabled)
             {
                 Reset();
+                if (hasLocalQuota) return local;
                 var note = access.Error.Length > 0 ? access.Error : "仅本地用量统计（可在「系统 → Claude 额度来源」手动开启额度同步）";
                 return local with
                 {
-                    Detail = string.IsNullOrWhiteSpace(local.Detail) ? note : local.Detail + "\n" + note,
-                    DataState = ProviderDataState.NoQuota
+                    Detail = string.IsNullOrWhiteSpace(local.Detail) ? note : local.Detail + "\n" + note
                 };
             }
             if (access.Account is not { } account)
             {
                 Reset();
+                if (hasLocalQuota) return local;
                 var message = access.Error.Length > 0 ? access.Error : "Claude 额度凭据暂不可用，请在「系统 → Claude 额度来源」检查配置";
                 return local with { Detail = message, CompactDetail = message, DataState = ProviderDataState.NoQuota };
             }
@@ -91,7 +100,8 @@ public sealed class ClaudeDesktopQuotaRefresh(IClaudeDesktopQuotaClient client, 
                 cancellation = new();
                 pending = Read(account, cancellation.Token);
             }
-            local = local with { Tier = account.Tier, QuotaScope = account.Scope };
+            var mergedTier = MergeTier(local.Tier, account.Tier);
+            local = local with { Tier = mergedTier, QuotaScope = account.Scope };
             var sourceUrl = account.SourceKind == "web"
                 ? "https://claude.ai/api/organizations/*/usage"
                 : "https://api.anthropic.com/api/oauth/usage";
@@ -100,8 +110,15 @@ public sealed class ClaudeDesktopQuotaRefresh(IClaudeDesktopQuotaClient client, 
                 : "Claude OAuth 额度（~/.claude/.credentials.json）；每 3 分钟自动查询，手动刷新可立即重试。";
             if (cached is { } value)
             {
+                if (hasLocalQuota && local.DataState == ProviderDataState.Available)
+                {
+                    var localCaptured = local.FiveHour?.CapturedAt ?? local.Weekly?.CapturedAt;
+                    if (localCaptured is { } lc && lc > succeeded)
+                        return local;
+                }
                 var stale = error.Length > 0 || clock.GetUtcNow() - succeeded > TimeSpan.FromMinutes(9);
                 QuotaWindow? Mark(QuotaWindow? window) => window is null ? null : window with { IsStale = stale };
+                var metadata = local.Metadata is null ? null : local.Metadata with { Sources = local.Metadata.Sources.Concat([sourceUrl]).Distinct().ToArray() };
                 return local with
                 {
                     FiveHour = Mark(value.FiveHour), Weekly = Mark(value.Weekly),
@@ -109,13 +126,22 @@ public sealed class ClaudeDesktopQuotaRefresh(IClaudeDesktopQuotaClient client, 
                     DataState = stale ? ProviderDataState.Stale : ProviderDataState.Available,
                     Detail = error.Length > 0 ? error + "；保留本账号上次成功回报。" : sourceNote,
                     CompactDetail = "",
-                    Metadata = local.Metadata with { Sources = local.Metadata.Sources.Concat([sourceUrl]).ToArray() }
+                    Metadata = metadata
                 };
             }
+            if (hasLocalQuota) return local;
             var detail = error.Length > 0 ? error : "正在查询 Claude 订阅额度";
             return local with { Detail = detail, CompactDetail = detail,
                 DataState = error.Length > 0 ? ProviderDataState.ReadFailed : ProviderDataState.NoQuota };
         }
+    }
+
+    private static string MergeTier(string localTier, string accountTier)
+    {
+        var accountSpecific = accountTier is not ("" or "未知" or "未登录" or "已登录" or "Web 订阅");
+        if (accountSpecific) return accountTier;
+        var localSpecific = localTier is not ("" or "未知" or "未登录" or "已登录");
+        return localSpecific ? localTier : accountTier;
     }
 
     private TimeSpan CurrentInterval()

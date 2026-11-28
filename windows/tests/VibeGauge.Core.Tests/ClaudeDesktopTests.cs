@@ -15,23 +15,45 @@ public sealed class ClaudeDesktopTests : IDisposable
         File.WriteAllText(Path.Combine(directory, "config.json"), json);
     }
 
-    [Theory]
-    [InlineData(true, "已登录", ProviderDataState.NoQuota)]
-    [InlineData(false, "未登录", ProviderDataState.NotSignedIn)]
-    public void DesktopUsesExplicitLocalFlagEvenWhenAnOldAccountRemains(bool signedIn, string tier, ProviderDataState state)
+    [Fact]
+    public void ScannerOmitsClaudeDesktopCardAndKeepsUnifiedClaudeCard()
     {
-        Config(Profile, JsonSerializer.Serialize(new { windowSizeWasSignedIn = signedIn, lastKnownAccountUuid = "PRIVATE", accessToken = "SECRET" }));
+        Config(Profile, JsonSerializer.Serialize(new { windowSizeWasSignedIn = true }));
+        File.WriteAllText(Paths.ClaudeSettings, "{\"oauthAccount\":{\"organizationRateLimitTier\":\"max_5x\"}}");
+        Directory.CreateDirectory(Paths.ClaudeRoot);
+        File.WriteAllText(Path.Combine(Paths.ClaudeRoot, "claude-usage.json"), "{\"five_hour\":{\"used_percentage\":42}}");
         using var scanner = new QuotaScanner(Paths);
-        var status = scanner.Scan(ProcessReport.Empty with { ClaudeDesktopProcesses = 1 }).Single(p => p.Name == ClaudeDesktop.Name);
-        Assert.Equal(tier, status.Tier);
-        Assert.Equal(state, status.DataState);
-        Assert.True(status.IsRunning);
-        Assert.Contains("本地状态", status.Detail);
-        Assert.Contains("本地状态", status.CompactDetail);
-        Assert.Null(status.FiveHour);
-        Assert.Null(status.Weekly);
-        Assert.DoesNotContain("PRIVATE", JsonSerializer.Serialize(status));
-        Assert.DoesNotContain("SECRET", JsonSerializer.Serialize(status));
+        var result = scanner.Scan(ProcessReport.Empty with { ClaudeDesktopProcesses = 1, ClaudeSessions = 2 });
+        Assert.DoesNotContain(result, p => p.Name == ClaudeDesktop.Name);
+        var code = result.Single(p => p.Name == "Claude");
+        Assert.Equal("Max 5x", code.Tier);
+        Assert.Equal(42, code.FiveHour!.UsedPercent);
+        Assert.Equal(2, code.Sessions);
+    }
+
+    [Fact]
+    public void ScannerAppliesLiveQuotaClientDirectlyToClaudeCard()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var client = new FakeQuotaClient(now);
+        using var scanner = new QuotaScanner(Paths, claudeClient: client);
+        scanner.Scan(ProcessReport.Empty);
+        var result = scanner.Scan(ProcessReport.Empty);
+        Assert.DoesNotContain(result, p => p.Name == ClaudeDesktop.Name);
+        var claude = result.Single(p => p.Name == "Claude");
+        Assert.Equal("Pro", claude.Tier);
+        Assert.Equal(ProviderDataState.Available, claude.DataState);
+        Assert.Equal(18, claude.FiveHour!.UsedPercent);
+        Assert.Equal(5, claude.Weekly!.UsedPercent);
+    }
+
+    private sealed class FakeQuotaClient(DateTimeOffset now) : IClaudeDesktopQuotaClient
+    {
+        public ClaudeDesktopQuotaAccess ReadAccount(string profile) => new(new(profile, "scope", "rev", "Pro", "oauth"));
+        public Task<ClaudeDesktopQuotaResult> ReadAsync(ClaudeDesktopQuotaAccount account, CancellationToken cancellationToken) =>
+            Task.FromResult(new ClaudeDesktopQuotaResult(
+                new(18, now.AddHours(3), now, TimeSpan.FromHours(5)),
+                new(5, now.AddDays(4), now, TimeSpan.FromDays(7))));
     }
 
     [Theory]
@@ -92,36 +114,6 @@ public sealed class ClaudeDesktopTests : IDisposable
         Assert.Equal("已登录", status.Tier);
         Assert.False(status.IsRunning);
         Assert.Contains("本地状态", status.Detail);
-    }
-
-    [Fact]
-    public void CodeAndDesktopAccountsAndQuotasStaySeparate()
-    {
-        Config(Profile, "{\"windowSizeWasSignedIn\":false}");
-        File.WriteAllText(Paths.ClaudeSettings, "{\"oauthAccount\":{\"organizationRateLimitTier\":\"max_5x\"}}");
-        Directory.CreateDirectory(Paths.ClaudeRoot);
-        File.WriteAllText(Path.Combine(Paths.ClaudeRoot, "claude-usage.json"), "{\"five_hour\":{\"used_percentage\":42}}");
-        using var scanner = new QuotaScanner(Paths);
-        var result = scanner.Scan(ProcessReport.Empty with { ClaudeDesktopProcesses = 1, ClaudeSessions = 2 });
-        var desktop = result.Single(p => p.Name == ClaudeDesktop.Name);
-        var code = result.Single(p => p.Name == "Claude");
-        Assert.Equal(ProviderDataState.NotSignedIn, desktop.DataState);
-        Assert.Null(desktop.FiveHour);
-        Assert.Equal("Max 5x", code.Tier);
-        Assert.Equal(42, code.FiveHour!.UsedPercent);
-        Assert.Equal(2, code.Sessions);
-    }
-
-    [Fact]
-    public void LoginAndLogoutAreRefreshedWithoutRestart()
-    {
-        using var scanner = new QuotaScanner(Paths);
-        foreach (var signedIn in new[] { true, false, true })
-        {
-            Config(Profile, JsonSerializer.Serialize(new { windowSizeWasSignedIn = signedIn }));
-            var status = scanner.Scan(ProcessReport.Empty).Single(p => p.Name == ClaudeDesktop.Name);
-            Assert.Equal(signedIn ? "已登录" : "未登录", status.Tier);
-        }
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }

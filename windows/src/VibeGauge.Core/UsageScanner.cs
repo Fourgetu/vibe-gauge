@@ -48,7 +48,7 @@ public sealed partial class UsageScanner
         lock (sync)
         {
             LoadCache();
-            desktopLocation = ClaudeDesktopUsage.Locate(paths, processes ?? ProcessReport.Empty);
+            desktopLocation = new(false);
             var discovered = DiscoverFiles();
             var filesRead = 0;
             long bytesRead = 0;
@@ -432,7 +432,7 @@ public sealed partial class UsageScanner
         var start = new DateTimeOffset(now.LocalDateTime.Date);
         var claudeFiles = CachedFiles("Claude");
         var claude = SourceRecords("Claude", () => MostRecentPerId(claudeFiles.SelectMany(x => x.Value.Records.Values)));
-        var desktop = DesktopRecords(claude);
+        var desktop = Array.Empty<InteractionRecord>();
         var codexFiles = CachedFiles("Codex");
         var codex = SourceRecords("Codex", () => CodexRecords(codexFiles));
         var piFiles = CachedFiles(PiDesktopUsage.SourceName);
@@ -452,12 +452,7 @@ public sealed partial class UsageScanner
         var devin = SourceRecords(DevinUsage.SourceName, () => MostRecentPerId(devinFiles.SelectMany(x => x.Value.Records.Values)));
         var apiFiles = CachedFiles("API");
         var rawApi = SourceRecords("API", () => MergeApiFileCopies(apiFiles));
-        nextFutureTimestamp = NextFutureTimestamp(now, desktop, claude, codex, pi, zcode, buddy, dsh, devin, ag, rawApi);
-        var todayDesktop = desktop.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
-        var desktopSource = SourceSummary(ClaudeDesktop.Name, todayDesktop, desktopLocation.Detected, desktopLocation.Note);
-        if (todayDesktop.Length > 0) desktopSource = desktopSource with { Note = "来自桌面真实用量账本；仅覆盖已记录活动" };
-        if (errors.Any(x => x.StartsWith(ClaudeDesktop.Name + " ", StringComparison.Ordinal)))
-            desktopSource = desktopSource with { Note = "部分桌面账本无法读取；保留已记录真实用量" };
+        nextFutureTimestamp = NextFutureTimestamp(now, claude, codex, pi, zcode, buddy, dsh, devin, ag, rawApi);
         var todayClaude = claude.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayCodex = codex.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayPi = pi.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
@@ -469,10 +464,9 @@ public sealed partial class UsageScanner
         var devinDetected = devinFiles.Length > 0 || Directory.Exists(paths.DevinRoot);
         var todayAg = ag.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
         var todayDevin = devin.Where(x => x.Timestamp >= start && x.Timestamp <= now).ToArray();
-        var cliRecords = todayDesktop.Concat(todayClaude).Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).Concat(todayDevin).Concat(todayAg).ToArray();
+        var cliRecords = todayClaude.Concat(todayCodex).Concat(todayPi).Concat(todayZCode).Concat(todayBuddy).Concat(todayDsh).Concat(todayDevin).Concat(todayAg).ToArray();
         var sourceRows = new[]
         {
-            desktopSource,
             SourceSummary("Claude Code", todayClaude, claudeFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary("Codex", todayCodex, codexFiles.Length > 0, "本地无今日 token 统计"),
             SourceSummary(PiDesktopUsage.SourceName, todayPi, piFiles.Length > 0 || Directory.Exists(paths.PiDesktopRoot), "本地无今日 token 统计"),

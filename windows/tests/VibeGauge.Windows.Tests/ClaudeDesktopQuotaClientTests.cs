@@ -110,11 +110,11 @@ public sealed class ClaudeDesktopQuotaClientTests
         Assert.Empty(result.Error);
         Assert.Equal(2, result.FiveHour!.UsedPercent);
         Assert.Equal(0, result.Weekly!.UsedPercent);
-        var row = PlatformRow.From(new(ClaudeDesktop.Name, "Pro", true, 1, ProviderDataState.Available, "", result.FiveHour, result.Weekly));
+        var row = PlatformRow.From(new("Claude", "Pro", true, 1, ProviderDataState.Available, "", result.FiveHour, result.Weekly));
         Assert.True(row.ShowReset);
         Assert.True(row.ShowTier);
         Assert.False(row.IsWide);
-        Assert.Equal("运行中", row.SessionText);
+        Assert.Equal("1 个会话", row.SessionText);
     }
 
     [Fact]

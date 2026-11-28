@@ -37,8 +37,8 @@ internal static class ClientVisibilityPanelChecks
             var apply = typeof(DashboardViewModel).GetMethod("Apply", BindingFlags.Instance | BindingFlags.NonPublic)!;
             apply.Invoke(vm, [snapshot]);
             Assert.Equal(11, vm.Platforms.Count);
-            Assert.Equal(12, vm.ClientOptions.Count);
-            Assert.Contains(vm.ClientOptions, x => x.Name == ClaudeDesktop.Name);
+            Assert.Equal(11, vm.ClientOptions.Count);
+            Assert.DoesNotContain(vm.ClientOptions, x => x.Name == ClaudeDesktop.Name);
             window = new MainWindow(vm, autoHide: false) { Width = 420, Height = 560, Left = -20000, Top = -20000, ShowInTaskbar = false, ShowActivated = false };
             window.Show();
             var controls = (ItemsControl)window.FindName("ClientVisibilityOptions");
@@ -52,7 +52,7 @@ internal static class ClientVisibilityPanelChecks
                 controls.BringIntoView();
                 Layout(window);
                 var toggles = Descendants<CheckBox>(controls).ToArray();
-                Assert.Equal(12, toggles.Length);
+                Assert.Equal(11, toggles.Length);
                 Assert.Contains(toggles, x => (string)x.Content == "Devin");
                 Assert.Contains(toggles, x => (string)x.Content == "Antigravity");
                 Assert.All(toggles, x => { Assert.IsType<string>(x.Content); Assert.True(x.ActualWidth > 100); });

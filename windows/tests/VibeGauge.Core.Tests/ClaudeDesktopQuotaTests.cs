@@ -6,8 +6,8 @@ namespace VibeGauge.Core.Tests;
 
 public sealed class ClaudeDesktopQuotaTests
 {
-    private static readonly PlatformStatus Local = new(ClaudeDesktop.Name, "已登录", true, 1, ProviderDataState.NoQuota, "",
-        Metadata: new([], [Path.Combine(Path.GetTempPath(), "claude-test-profile", "config.json")]));
+    private static readonly PlatformStatus Local = new("Claude", "Pro", true, 1, ProviderDataState.NoQuota, "",
+        Metadata: new([], [Path.Combine(Path.GetTempPath(), "claude-test-profile", ".credentials.json")]));
 
     [Fact]
     public void OfficialWindowsKeepResetOffsetsAndZeroUsage()
@@ -102,17 +102,24 @@ public sealed class ClaudeDesktopQuotaTests
     }
 
     [Fact]
-    public void LogoutAndMissingCredentialsDiscardCachedQuota()
+    public void MissingCredentialsDiscardCachedQuotaAndPreserveStatusLineQuota()
     {
         var clock = new Clock(); var client = new Client(clock);
         using var refresh = new ClaudeDesktopQuotaRefresh(client, clock);
         refresh.Apply(Local); Assert.NotNull(refresh.Apply(Local)!.FiveHour);
-        var loggedOut = Local with { Tier = "未登录", DataState = ProviderDataState.NotSignedIn };
-        Assert.Null(refresh.Apply(loggedOut)!.FiveHour);
-        refresh.Apply(Local); Assert.NotNull(refresh.Apply(Local)!.FiveHour);
         client.HasCredentials = false;
         Assert.Null(refresh.Apply(Local)!.FiveHour);
         Assert.Null(refresh.Apply(null));
+
+        // When statusLine quota is already present on Claude card, disabled/missing OAuth preserves it.
+        var withStatusLine = Local with
+        {
+            DataState = ProviderDataState.Available,
+            FiveHour = new(42, clock.Now.AddHours(3), clock.Now.AddMinutes(1), TimeSpan.FromHours(5))
+        };
+        Assert.Equal(42, refresh.Apply(withStatusLine)!.FiveHour!.UsedPercent);
+        client.Disabled = true;
+        Assert.Equal(42, refresh.Apply(withStatusLine)!.FiveHour!.UsedPercent);
     }
 
     [Fact]
