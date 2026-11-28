@@ -51,10 +51,37 @@ public sealed class ClaudeDesktopQuotaTests
         Assert.Equal("scope-a", status.QuotaScope);
         for (var i = 0; i < 20; i++) refresh.Apply(Local);
         Assert.Equal(1, client.Calls);
-        clock.Now = clock.Now.AddSeconds(60); refresh.Apply(Local);
+        clock.Now = clock.Now.AddMinutes(2); refresh.Apply(Local);
+        Assert.Equal(1, client.Calls);
+        clock.Now = clock.Now.AddMinutes(1); refresh.Apply(Local);
         Assert.Equal(2, client.Calls);
         refresh.Apply(Local); refresh.Invalidate(); refresh.Apply(Local);
         Assert.Equal(3, client.Calls);
+    }
+
+    [Fact]
+    public void DisabledSourceSkipsNetworkCallsAndPreservesLocalStatus()
+    {
+        var clock = new Clock(); var client = new Client(clock) { Disabled = true };
+        using var refresh = new ClaudeDesktopQuotaRefresh(client, clock);
+        var status = refresh.Apply(Local)!;
+        Assert.Equal(0, client.Calls);
+        Assert.Equal(ProviderDataState.NoQuota, status.DataState);
+        Assert.Null(status.FiveHour);
+        Assert.Contains("仅本地", status.Detail);
+    }
+
+    [Fact]
+    public void RateLimitedFailureAppliesExponentialBackoff()
+    {
+        var clock = new Clock(); var client = new Client(clock) { Error = "429", RateLimited = true };
+        using var refresh = new ClaudeDesktopQuotaRefresh(client, clock);
+        refresh.Apply(Local); refresh.Apply(Local);
+        Assert.Equal(1, client.Calls);
+        clock.Now = clock.Now.AddMinutes(3); refresh.Apply(Local);
+        Assert.Equal(1, client.Calls);
+        clock.Now = clock.Now.AddMinutes(9); refresh.Apply(Local);
+        Assert.Equal(2, client.Calls);
     }
 
     [Fact]
@@ -131,14 +158,16 @@ public sealed class ClaudeDesktopQuotaTests
     {
         public ClaudeDesktopQuotaAccount Account = new("test", "scope-a", "revision-a", "Pro");
         public bool HasCredentials = true;
+        public bool Disabled;
+        public bool RateLimited;
         public int Calls;
         public string Error = "";
         public TaskCompletionSource<ClaudeDesktopQuotaResult>? Pending;
-        public ClaudeDesktopQuotaAccess ReadAccount(string profile) => HasCredentials ? new(Account) : new(Error: "expired");
+        public ClaudeDesktopQuotaAccess ReadAccount(string profile) => Disabled ? new(Disabled: true) : HasCredentials ? new(Account) : new(Error: "expired");
         public Task<ClaudeDesktopQuotaResult> ReadAsync(ClaudeDesktopQuotaAccount account, CancellationToken cancellationToken)
         {
             Calls++;
-            return Pending?.Task ?? Task.FromResult(Error.Length > 0 ? new ClaudeDesktopQuotaResult(Error: Error) :
+            return Pending?.Task ?? Task.FromResult(Error.Length > 0 ? new ClaudeDesktopQuotaResult(Error: Error, RateLimited: RateLimited) :
                 new(new(20, clock.Now.AddHours(2), clock.Now, TimeSpan.FromHours(5))));
         }
     }

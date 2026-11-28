@@ -20,6 +20,8 @@ public sealed record FeaturePreferences
     public string ClashController { get; init; } = "http://127.0.0.1:9090";
     public bool LanClashController { get; init; }
     public string ClashSourceIp { get; init; } = "";
+    // CodexBar-style opt-in Claude quota source: "off" (default, local usage only), "web" (manual sessionKey), "oauth" (~/.claude/.credentials.json)
+    public string ClaudeQuotaSource { get; init; } = "off";
     public static FeaturePreferences Load(AppPaths paths)
     {
         try { return JsonSerializer.Deserialize<FeaturePreferences>(File.ReadAllText(Path.Combine(paths.LocalDataRoot, "features.json"))) ?? new(); }

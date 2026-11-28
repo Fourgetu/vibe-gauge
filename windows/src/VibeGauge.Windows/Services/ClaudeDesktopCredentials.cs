@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -7,82 +9,201 @@ using VibeGauge.Core;
 
 namespace VibeGauge.Windows.Services;
 
-internal sealed class ClaudeDesktopCredential(ClaudeDesktopQuotaAccount account, string token)
+internal sealed class ClaudeDesktopCredential(ClaudeDesktopQuotaAccount account, string secret)
 {
     public ClaudeDesktopQuotaAccount Account { get; } = account;
     [System.Text.Json.Serialization.JsonIgnore]
-    public string Token { get; } = token;
-    public override string ToString() => "Claude Desktop credential (redacted)";
+    public string Secret { get; } = secret;
+    public override string ToString() => $"Claude credential ({Account.SourceKind}, redacted)";
 }
 
+/// <summary>
+/// CodexBar-style clean Claude quota credential reader.
+/// Zero DPAPI / AES-GCM decryption of Chromium/Electron Local State.
+/// Supports:
+/// - "off" (default): no credential read, local read-only logs only.
+/// - "web": user-supplied claude.ai sessionKey stored in Windows Credential Manager.
+/// - "oauth": plain Claude Code ~/.claude/.credentials.json with user:profile scope.
+/// </summary>
 internal static class ClaudeDesktopCredentials
 {
-    private const int MaxConfigBytes = 2 * 1024 * 1024;
+    private const int MaxCredentialBytes = 512 * 1024;
+    private const string SessionKeyTarget = "VibeGauge.ClaudeSessionKey";
 
-    internal static ClaudeDesktopCredential? Read(string profile, DateTimeOffset now)
+    internal static ClaudeDesktopCredential? ReadForMode(AppPaths paths, string mode, string profile, DateTimeOffset now, Func<string?>? readManualSessionKey = null)
     {
-        using var config = ReadJson(Path.Combine(profile, "config.json"));
-        var root = config.RootElement;
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("windowSizeWasSignedIn", out var signedIn) ||
-            signedIn.ValueKind != JsonValueKind.True || !root.TryGetProperty("lastKnownAccountUuid", out var account) ||
-            account.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(account.GetString()) ||
-            !root.TryGetProperty("oauth:tokenCacheV2", out var encrypted) || encrypted.ValueKind != JsonValueKind.String) return null;
-        using var localState = ReadJson(Path.Combine(profile, "Local State"));
-        var wrappedKey = Convert.FromBase64String(localState.RootElement.GetProperty("os_crypt").GetProperty("encrypted_key").GetString()!);
-        if (wrappedKey.Length <= 5 || !wrappedKey.AsSpan(0, 5).SequenceEqual("DPAPI"u8)) return null;
-        var key = ProtectedData.Unprotect(wrappedKey.AsSpan(5).ToArray(), null, DataProtectionScope.CurrentUser);
-        byte[]? plaintext = null;
+        return mode switch
+        {
+            "web" => ReadManualWebSession(profile, readManualSessionKey ?? ReadSavedSessionKey),
+            "oauth" => ReadClaudeCodeOAuth(paths.ClaudeRoot, profile, now),
+            _ => null
+        };
+    }
+
+    internal static ClaudeDesktopCredential? ReadManualWebSession(string profile, Func<string?> readSecret)
+    {
+        var raw = readSecret();
+        var key = ExtractSessionKey(raw);
+        if (key is null) return null;
+        var hash = Hash(key);
+        var scope = Hash("claude-web-manual\n" + hash);
+        return new(new(profile, scope, hash, "Web 订阅", "web"), key);
+    }
+
+    internal static ClaudeDesktopCredential? ReadClaudeCodeOAuth(string claudeRoot, string profile, DateTimeOffset now)
+    {
+        var path = Path.Combine(claudeRoot, ".credentials.json");
+        if (!File.Exists(path)) return null;
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (file.Length > MaxCredentialBytes) throw new IOException("Credentials file is too large");
+        using var doc = JsonDocument.Parse(file);
+        return SelectClaudeCodeOAuth(doc.RootElement, profile, now);
+    }
+
+    internal static ClaudeDesktopCredential? SelectClaudeCodeOAuth(JsonElement root, string profile, DateTimeOffset now)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("claudeAiOauth", out var oauth) || oauth.ValueKind != JsonValueKind.Object)
+            return null;
+        if (!oauth.TryGetProperty("accessToken", out var tokenEl) || tokenEl.ValueKind != JsonValueKind.String)
+            return null;
+        var token = tokenEl.GetString()?.Trim() ?? "";
+        if (token.Length == 0 || token.Length > 4000 || token.Any(char.IsWhiteSpace) || token.Any(char.IsControl))
+            return null;
+
+        if (oauth.TryGetProperty("expiresAt", out var expEl) && expEl.ValueKind == JsonValueKind.Number &&
+            expEl.TryGetDouble(out var expiry) && double.IsFinite(expiry))
+        {
+            var expiryMs = expiry < 10_000_000_000 ? expiry * 1000 : expiry;
+            if (expiryMs <= now.ToUnixTimeMilliseconds() + 30_000) return null;
+        }
+
+        // Require user:profile scope when scopes are present (CodexBar rule: inference-only or MCP-only tokens cannot query usage).
+        if (oauth.TryGetProperty("scopes", out var scopesEl) && scopesEl.ValueKind == JsonValueKind.Array)
+        {
+            var hasProfile = scopesEl.EnumerateArray()
+                .Any(x => x.ValueKind == JsonValueKind.String && string.Equals(x.GetString(), "user:profile", StringComparison.Ordinal));
+            if (!hasProfile) return null;
+        }
+
+        var sub = oauth.TryGetProperty("subscriptionType", out var planEl) && planEl.ValueKind == JsonValueKind.String
+            ? planEl.GetString()?.Trim().ToLowerInvariant() ?? "" : "";
+        var rateTier = oauth.TryGetProperty("rateLimitTier", out var rtEl) && rtEl.ValueKind == JsonValueKind.String
+            ? rtEl.GetString()?.Trim().ToLowerInvariant() ?? "" : "";
+
+        var tier = rateTier switch
+        {
+            var r when r.Contains("max_20x", StringComparison.Ordinal) => "Max 20x",
+            var r when r.Contains("max_5x", StringComparison.Ordinal) => "Max 5x",
+            _ => sub switch
+            {
+                "max" => "Max",
+                "pro" => "Pro",
+                "team" => "Team",
+                "enterprise" => "Enterprise",
+                "free" => "Free",
+                _ => "已登录"
+            }
+        };
+
+        var revision = Hash(token);
+        var scope = Hash("claude-code-oauth\n" + Path.GetFullPath(profile).ToUpperInvariant() + "\n" + tier);
+        return new(new(profile, scope, revision, tier, "oauth"), token);
+    }
+
+    public static string? ExtractSessionKey(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw.Length > 8000) return null;
+        var trimmed = raw.Trim();
+        // Allow pasting either a raw sessionKey value (sk-ant-...) or a Cookie header containing sessionKey=...
+        var match = Regex.Match(trimmed, @"(?:^|[;\s])sessionKey=([^\s;]+)", RegexOptions.CultureInvariant);
+        var candidate = match.Success ? match.Groups[1].Value.Trim() : trimmed;
+        if (candidate.Length < 16 || candidate.Length > 2000 ||
+            !candidate.StartsWith("sk-ant-", StringComparison.Ordinal) ||
+            candidate.Any(char.IsWhiteSpace) || candidate.Any(char.IsControl) || candidate.Contains(';'))
+            return null;
+        return candidate;
+    }
+
+    public static string SaveSessionKey(string rawInput)
+    {
+        var key = ExtractSessionKey(rawInput) ?? throw new ArgumentException("无效的 sessionKey：请粘贴 claude.ai 的 sessionKey（以 sk-ant- 开头）或完整 Cookie 请求头。");
+        var bytes = Encoding.Unicode.GetBytes(key);
+        var mem = Marshal.AllocHGlobal(bytes.Length);
         try
         {
-            var cipher = Convert.FromBase64String(encrypted.GetString()!);
-            if (cipher.Length <= 31 || !cipher.AsSpan(0, 3).SequenceEqual("v10"u8)) return null;
-            plaintext = new byte[cipher.Length - 31];
-            using var aes = new AesGcm(key, 16);
-            aes.Decrypt(cipher.AsSpan(3, 12), cipher.AsSpan(15, plaintext.Length), cipher.AsSpan(cipher.Length - 16), plaintext);
-            using var cache = JsonDocument.Parse(plaintext);
-            return Select(cache.RootElement, account.GetString()!, profile, now);
+            Marshal.Copy(bytes, 0, mem, bytes.Length);
+            var cred = new NativeCredential
+            {
+                Type = 1,
+                TargetName = SessionKeyTarget,
+                UserName = "claude.ai",
+                Comment = "Claude Web sessionKey (manual)",
+                BlobSize = (uint)bytes.Length,
+                Blob = mem,
+                Persist = 2
+            };
+            if (!CredWrite(ref cred, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(key);
-            if (plaintext is not null) CryptographicOperations.ZeroMemory(plaintext);
+            for (var i = 0; i < bytes.Length; i++) Marshal.WriteByte(mem, i, 0);
+            Marshal.FreeHGlobal(mem);
+            CryptographicOperations.ZeroMemory(bytes);
         }
+        return Hash(key)[..8].ToLowerInvariant();
     }
 
-    private static JsonDocument ReadJson(string path)
+    public static string? ReadSavedSessionKey()
     {
-        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        if (file.Length > MaxConfigBytes) throw new IOException("Desktop configuration is too large");
-        return JsonDocument.Parse(file);
-    }
-
-    internal static ClaudeDesktopCredential? Select(JsonElement cache, string account, string profile, DateTimeOffset now)
-    {
-        if (cache.ValueKind != JsonValueKind.Object) return null;
-        var candidates = new List<(string Org, string Token, string Tier, double Expires, bool Inference)>();
-        foreach (var entry in cache.EnumerateObject())
+        if (!CredRead(SessionKeyTarget, 1, 0, out var ptr))
         {
-            // Anchor the origin and current account. Other providers and previous accounts are excluded.
-            var match = Regex.Match(entry.Name, @"^acct:([^|]+)\|[^:]+:([^:]+):https://api\.anthropic\.com:(.+)$");
-            if (!match.Success || match.Groups[1].Value != account) continue;
-            var scopes = match.Groups[3].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (!scopes.Contains("user:profile", StringComparer.Ordinal)) continue;
-            var value = entry.Value;
-            if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("identityChecked", out var checkedIdentity) ||
-                checkedIdentity.ValueKind != JsonValueKind.True || !value.TryGetProperty("token", out var token) ||
-                token.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(token.GetString()) ||
-                !value.TryGetProperty("expiresAt", out var expires) || expires.ValueKind != JsonValueKind.Number ||
-                !expires.TryGetDouble(out var expiry) || !double.IsFinite(expiry) || expiry <= now.ToUnixTimeMilliseconds() + 30000) continue;
-            var subscription = value.TryGetProperty("subscriptionType", out var plan) && plan.ValueKind == JsonValueKind.String ? plan.GetString() : "";
-            var tier = subscription switch { "pro" => "Pro", "max" => "Max", "team" => "Team", "enterprise" => "Enterprise", "free" => "Free", _ => "已登录" };
-            candidates.Add((match.Groups[2].Value, token.GetString()!, tier, expiry, scopes.Contains("user:inference", StringComparer.Ordinal)));
+            var err = Marshal.GetLastWin32Error();
+            if (err == 1168) return null;
+            throw new Win32Exception(err);
         }
-        if (candidates.Count == 0 || candidates.Select(x => x.Org).Distinct(StringComparer.Ordinal).Count() != 1) return null;
-        var selected = candidates.OrderByDescending(x => x.Inference).ThenByDescending(x => x.Expires).First();
-        var scope = Hash(Path.GetFullPath(profile).ToUpperInvariant() + "\n" + account + "\n" + selected.Org);
-        var revision = Hash(selected.Token);
-        return new(new(profile, scope, revision, selected.Tier), selected.Token);
+        try
+        {
+            var entry = Marshal.PtrToStructure<NativeCredential>(ptr);
+            return Marshal.PtrToStringUni(entry.Blob, (int)entry.BlobSize / 2);
+        }
+        finally { CredFree(ptr); }
+    }
+
+    public static bool HasSavedSessionKey()
+    {
+        try { return ExtractSessionKey(ReadSavedSessionKey()) is not null; }
+        catch (Win32Exception) { return false; }
+    }
+
+    public static void DeleteSavedSessionKey()
+    {
+        if (!CredDelete(SessionKeyTarget, 1, 0) && Marshal.GetLastWin32Error() != 1168)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
     }
 
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct NativeCredential
+    {
+        public uint Flags, Type;
+        [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? Comment;
+        public long LastWritten;
+        public uint BlobSize;
+        public IntPtr Blob;
+        public uint Persist, AttributeCount;
+        public IntPtr Attributes;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? TargetAlias;
+        [MarshalAs(UnmanagedType.LPWStr)] public string UserName;
+    }
+
+    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CredWrite(ref NativeCredential credential, uint flags);
+    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CredRead(string target, uint type, uint flags, out IntPtr credential);
+    [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CredDelete(string target, uint type, uint flags);
+    [DllImport("advapi32.dll")] private static extern void CredFree(IntPtr pointer);
 }

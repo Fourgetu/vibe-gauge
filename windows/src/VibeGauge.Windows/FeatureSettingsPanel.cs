@@ -64,6 +64,7 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
         Page("磁盘占用与维护", "查看目录占用，预览旧文件清理。", BuildMaintenance);
         Page("软件版本", "查看 VibeGauge 版本，手动检查或打开发布页。", BuildUpdates);
         Page("官方 CLI", "查看安装状态和登录指引。", BuildCli);
+        Page("Claude 额度来源", "选择仅本地统计、手动 sessionKey 或 Claude Code OAuth。", BuildClaudeQuota);
         Page("代理连接", "配置本地端口和上游 HTTP 代理。", () => SettingsPanel.BuildProxy(vm, Section("代理连接")));
     }
     private void ShowPage(Action build)
@@ -339,5 +340,136 @@ public sealed class FeatureSettingsPanel : Wpf.UserControl
         }
         panel.Children.Add(InsightUi.Text("安装、登录均由你在终端确认；不执行 macOS 脚本，不自动登录。凭据过期时重新登录后刷新。"));
         panel.Children.Add(InsightUi.Button("登录后刷新官方额度", async (_, _) => { vm.InvalidateOfficial(); await vm.RefreshAsync(); }));
+    }
+
+    private void BuildClaudeQuota()
+    {
+        var panel = Section("Claude 订阅额度来源");
+        panel.Children.Add(InsightUi.Text("不再解密桌面端 Local State 凭据，降低杀毒软件误报与条款风险；默认仅统计本地用量，可按需手动开启以下来源："));
+        var prefs = FeaturePreferences.Load(vm.Paths);
+        var current = prefs.ClaudeQuotaSource is "web" or "oauth" ? prefs.ClaudeQuotaSource : "off";
+
+        var modeHost = new Wpf.Border { Style = (Style)FindResource("SegmentedHostStyle"), HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 8) };
+        var modeRow = new Wpf.StackPanel { Orientation = Wpf.Orientation.Horizontal };
+        modeHost.Child = modeRow;
+
+        var webBox = new Wpf.StackPanel { Visibility = current == "web" ? Visibility.Visible : Visibility.Collapsed };
+        var oauthBox = new Wpf.StackPanel { Visibility = current == "oauth" ? Visibility.Visible : Visibility.Collapsed };
+        var feedback = InsightUi.Text("");
+        feedback.Visibility = Visibility.Collapsed;
+
+        void ShowMsg(string msg, bool err = false)
+        {
+            feedback.Text = msg;
+            feedback.Visibility = Visibility.Visible;
+            feedback.SetResourceReference(Wpf.TextBlock.ForegroundProperty, err ? "DangerBrush" : "TextSecondaryBrush");
+        }
+
+        var buttons = new List<(string Mode, Wpf.Button Button)>();
+        foreach (var (mode, title) in new[] { ("off", "仅本地（默认）"), ("web", "Web sessionKey"), ("oauth", "Claude Code OAuth") })
+        {
+            var btn = new Wpf.Button
+            {
+                Content = title,
+                Tag = current == mode ? "Selected" : null,
+                Style = (Style)FindResource("SegmentButtonStyle")
+            };
+            btn.Click += async (_, _) =>
+            {
+                current = mode;
+                foreach (var (m, b) in buttons) b.Tag = m == current ? "Selected" : null;
+                webBox.Visibility = current == "web" ? Visibility.Visible : Visibility.Collapsed;
+                oauthBox.Visibility = current == "oauth" ? Visibility.Visible : Visibility.Collapsed;
+                try
+                {
+                    (FeaturePreferences.Load(vm.Paths) with { ClaudeQuotaSource = current }).Save(vm.Paths);
+                    vm.InvalidateOfficial();
+                    await vm.RefreshAsync();
+                    ShowMsg(current switch
+                    {
+                        "web" => "已切换为 Web sessionKey 模式（每 3 分钟查询，遇 429 自动退避）。",
+                        "oauth" => "已切换为 Claude Code OAuth 模式（读取 ~/.claude/.credentials.json，每 3 分钟查询）。",
+                        _ => "已切换为仅本地用量统计模式，不发起在线额度查询。"
+                    });
+                }
+                catch (Exception e) { ShowMsg("保存失败：" + e.Message, true); }
+            };
+            buttons.Add((mode, btn));
+            modeRow.Children.Add(btn);
+        }
+        panel.Children.Add(modeHost);
+
+        // Web manual sessionKey controls (CodexBar style, no Claude Code needed, no DPAPI Local State decryption)
+        webBox.Children.Add(InsightUi.Text("手动粘贴 claude.ai sessionKey（无需安装 Claude Code）", true));
+        webBox.Children.Add(InsightUi.Text("在浏览器登录 claude.ai 后，从开发者工具 Cookie 中复制 sessionKey（以 sk-ant- 开头）或整段 Cookie 头。密钥仅存入 Windows 凭据管理器，不解密任何浏览器/桌面文件。"));
+        var savedHint = InsightUi.Text(ClaudeDesktopCredentials.HasSavedSessionKey() ? "当前状态：已保存 sessionKey（Windows 凭据管理器）" : "当前状态：尚未保存 sessionKey");
+        webBox.Children.Add(savedHint);
+        var secret = new Wpf.PasswordBox { MaxLength = 4000, Padding = new Thickness(5), Margin = new Thickness(0, 4, 0, 8) };
+        secret.SetResourceReference(Wpf.PasswordBox.ForegroundProperty, "TextPrimaryBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.BackgroundProperty, "CardRaisedBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.CaretBrushProperty, "TextPrimaryBrush");
+        secret.SetResourceReference(Wpf.PasswordBox.BorderBrushProperty, "BorderStrongBrush");
+        webBox.Children.Add(secret);
+
+        var webActions = new Wpf.WrapPanel();
+        webActions.Children.Add(InsightUi.Button("测试连接", async (s, _) =>
+        {
+            var btn = (Wpf.Button)s; btn.IsEnabled = false;
+            try
+            {
+                var input = secret.Password.Length > 0 ? secret.Password : (ClaudeDesktopCredentials.ReadSavedSessionKey() ?? "");
+                ShowMsg("正在测试 claude.ai 连接…");
+                var res = await ClaudeDesktopQuotaClient.TestWebSessionKeyAsync(input, CancellationToken.None);
+                ShowMsg(res.Error.Length > 0 ? res.Error
+                    : $"连接成功：5H {res.FiveHour?.UsedPercent ?? 0}% · 周 {res.Weekly?.UsedPercent ?? 0}%",
+                    res.Error.Length > 0);
+            }
+            catch (Exception e) { ShowMsg("测试失败：" + e.Message, true); }
+            finally { btn.IsEnabled = true; }
+        }));
+        webActions.Children.Add(InsightUi.Button("保存 sessionKey", async (_, _) =>
+        {
+            try
+            {
+                if (vm.Paths.Home != new AppPaths().Home) { ShowMsg("预览模式不保存真实凭据", true); return; }
+                var fp = ClaudeDesktopCredentials.SaveSessionKey(secret.Password);
+                secret.Clear();
+                savedHint.Text = $"当前状态：已保存 sessionKey（指纹 {fp}）";
+                (FeaturePreferences.Load(vm.Paths) with { ClaudeQuotaSource = "web" }).Save(vm.Paths);
+                vm.InvalidateOfficial();
+                await vm.RefreshAsync();
+                ShowMsg("已保存到 Windows 凭据管理器并开始查询，每 3 分钟自动刷新。");
+            }
+            catch (Exception e) { ShowMsg(e.Message, true); }
+        }));
+        webActions.Children.Add(InsightUi.Button("删除已保存", async (_, _) =>
+        {
+            try
+            {
+                if (vm.Paths.Home != new AppPaths().Home) return;
+                ClaudeDesktopCredentials.DeleteSavedSessionKey();
+                savedHint.Text = "当前状态：尚未保存 sessionKey";
+                vm.InvalidateOfficial();
+                await vm.RefreshAsync();
+                ShowMsg("已从 Windows 凭据管理器删除 sessionKey。");
+            }
+            catch (Exception e) { ShowMsg("删除失败：" + e.Message, true); }
+        }));
+        webBox.Children.Add(webActions);
+        panel.Children.Add(webBox);
+
+        // Claude Code plain .credentials.json OAuth mode
+        oauthBox.Children.Add(InsightUi.Text("读取 Claude Code 凭据文件（~/.claude/.credentials.json）", true));
+        var credFile = Path.Combine(vm.Paths.ClaudeRoot, ".credentials.json");
+        var oauthCred = File.Exists(credFile) ? ClaudeDesktopCredentials.ReadClaudeCodeOAuth(vm.Paths.ClaudeRoot, vm.Paths.ClaudeRoot, DateTimeOffset.UtcNow) : null;
+        oauthBox.Children.Add(InsightUi.Text(oauthCred is not null
+            ? $"已检测到可用凭据（套餐：{oauthCred.Account.Tier}），每 3 分钟自动刷新。"
+            : File.Exists(credFile)
+                ? "已找到 .credentials.json，但未包含有效的 user:profile OAuth 令牌或已过期，请在终端重新登录 Claude Code。"
+                : $"未找到 {credFile}，请先登录 Claude Code，或改用 Web sessionKey 模式。"));
+        panel.Children.Add(oauthBox);
+
+        panel.Children.Add(feedback);
+        panel.Children.Add(InsightUi.Button("在浏览器打开官方用量页 (claude.ai/settings/usage) ↗", (_, _) => Open("https://claude.ai/settings/usage")));
     }
 }

@@ -786,5 +786,7 @@
   "是": "Yes",
   "否": "No",
   "已复制代理前缀": "Proxy prefix copied",
-  "已复制命令": "Command copied"
+  "已复制命令": "Command copied",
+  "Claude 额度来源": "Claude quota source",
+  "选择仅本地统计、手动 sessionKey 或 Claude Code OAuth。": "Choose local-only stats, manual sessionKey, or Claude Code OAuth."
 }

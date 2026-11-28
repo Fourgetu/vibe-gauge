@@ -24,7 +24,7 @@ public sealed class DashboardCoordinator : IDisposable
     {
         paths ??= new AppPaths();
         Paths = paths;
-        quotas = new(paths, new CodexAppServerQuotaClient(paths), new ClaudeDesktopQuotaClient());
+        quotas = new(paths, new CodexAppServerQuotaClient(paths), new ClaudeDesktopQuotaClient(paths));
         antigravity = new(new AntigravityQuotaClient(paths).ReadAsync);
         usage = new(paths);
         sampler = new(paths);
